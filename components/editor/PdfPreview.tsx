@@ -42,9 +42,10 @@ export default function PdfPreview({ pdfBytes, compileStatus }: Props) {
 
   const [numPages,    setNumPages]    = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [scale,       setScale]       = useState(1.2);
+  const [scale,       setScale]       = useState(1.0);
   const [naturalW,    setNaturalW]    = useState(595);
   const [rendering,   setRendering]   = useState(false);
+  const hasAutoFitted = useRef(false);
 
   /* ── Render all pages at current scale ─────────────────────── */
   const renderPdf = useCallback(async () => {
@@ -71,6 +72,16 @@ export default function PdfPreview({ pdfBytes, compileStatus }: Props) {
         if (i === 1) {
           const baseVp = page.getViewport({ scale: 1 });
           setNaturalW(baseVp.width);
+
+          // Auto fit on first load
+          if (!hasAutoFitted.current && scrollAreaRef.current) {
+            hasAutoFitted.current = true;
+            const avail = scrollAreaRef.current.clientWidth - 48;
+            if (avail > 0 && baseVp.width > 0) {
+              const fitScale = Math.max(0.4, Math.min(2.0, +(avail / baseVp.width).toFixed(2)));
+              setScale(fitScale);
+            }
+          }
         }
 
         /* wrapper */
@@ -81,6 +92,7 @@ export default function PdfPreview({ pdfBytes, compileStatus }: Props) {
           `position:relative`,
           `margin:0 auto 32px`,
           `width:${cssW}px`,
+          `max-width:100%`,
           `background:#FAF8F5`,
           `border-radius:4px`,
           `box-shadow:0 4px 24px rgba(15,23,42,0.13),0 1px 3px rgba(15,23,42,0.07)`,
@@ -91,7 +103,7 @@ export default function PdfPreview({ pdfBytes, compileStatus }: Props) {
         const canvas = document.createElement("canvas");
         canvas.width  = vp.width;
         canvas.height = vp.height;
-        canvas.style.cssText = `display:block;width:${cssW}px;height:${cssH}px;border-radius:4px`;
+        canvas.style.cssText = `display:block;width:${cssW}px;max-width:100%;height:auto;border-radius:4px`;
 
         const ctx = canvas.getContext("2d")!;
         await page.render({ canvasContext: ctx, viewport: vp }).promise;
@@ -114,7 +126,7 @@ export default function PdfPreview({ pdfBytes, compileStatus }: Props) {
     } finally {
       setRendering(false);
     }
-  }, [pdfBytes, scale]); // scale in deps → zoom triggers re-render
+  }, [pdfBytes, scale]);
 
   useEffect(() => { renderPdf(); }, [renderPdf]);
 
@@ -181,7 +193,7 @@ export default function PdfPreview({ pdfBytes, compileStatus }: Props) {
   const isOverflowing = currentRenderedW > (containerW - 48);
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100%", width:"100%", overflow:"hidden", background:"#F4F1EA" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", minHeight: 0, width:"100%", overflow:"hidden", background:"#F4F1EA" }}>
 
       {/* ══ Toolbar ══════════════════════════════════════════════ */}
       <div style={{
@@ -309,13 +321,12 @@ export default function PdfPreview({ pdfBytes, compileStatus }: Props) {
         <div style={{
           display: "flex",
           flexDirection: "column",
-          alignItems: isOverflowing ? "flex-start" : "center",
-          width: isOverflowing ? "max-content" : "100%",
-          minWidth: "100%",
+          alignItems: "center",
+          width: "100%",
           padding: numPages > 0 ? "28px 24px 52px" : 0,
           boxSizing: "border-box",
         }}>
-          <div ref={containerRef} style={{ display:"flex", flexDirection:"column", alignItems: isOverflowing ? "flex-start" : "center" }} />
+          <div ref={containerRef} style={{ display:"flex", flexDirection:"column", alignItems: "center", width: "100%" }} />
         </div>
       </div>
 

@@ -59,9 +59,7 @@ export default function SignUpPage() {
       {/* ── Left branding panel ── */}
       <div className="auth-left">
         <div className="auth-logo">
-          <div className="auth-logo-mark">
-            <span className="auth-logo-letter">T</span>
-          </div>
+          <img src="/logo.png" alt="Texly" style={{ width: "44px", height: "44px", objectFit: "contain" }} />
           <span className="auth-logo-text">Texly</span>
         </div>
 

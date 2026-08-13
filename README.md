@@ -1,6 +1,22 @@
-# Texly — Browser-Based LaTeX Editor
+<p align="center">
+  <img src="public/logo.png" alt="Texly Logo" width="120" />
+</p>
 
-**Texly** is a modern, full-featured web application for writing, compiling, and previewing LaTeX documents directly in your browser. Built with **Next.js 16**, **React 19**, **Monaco Editor**, **MongoDB**, and **Clerk**, Texly brings an Overleaf-like experience with project access controls, version history, asset management, and instant PDF previewing.
+<h1 align="center">Texly — Browser-Based LaTeX Editor</h1>
+
+<p align="center">
+  <strong>Write, compile, and preview LaTeX documents entirely in your browser.</strong><br/>
+  Built with Next.js, Monaco Editor, MongoDB, and Clerk.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Siddhantshukla1657/Texly">
+    <img src="https://img.shields.io/badge/GitHub-Texly-2D3A4A?style=flat-square&logo=github" alt="GitHub"/>
+  </a>
+  <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js" alt="Next.js"/>
+  <img src="https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb" alt="MongoDB"/>
+  <img src="https://img.shields.io/badge/Clerk-Auth-6C47FF?style=flat-square&logo=clerk" alt="Clerk"/>
+</p>
 
 ---
 

@@ -23,6 +23,7 @@ import {
   IconClose,
   IconChevronDown,
   IconChevronRight,
+  IconPlay,
 } from "@/components/icons";
 import WaxSealButton from "@/components/editor/WaxSealButton";
 import StitchedSeamDivider from "@/components/editor/StitchedSeamDivider";
@@ -259,7 +260,13 @@ export default function EditorPage() {
         fileMap[a.filename] = a.blobUrl;
       }
 
-      const mainFile = allFiles.find((f) => f.isMainTex)?.filename || allFiles[0]?.filename;
+      const mainFile =
+        allFiles.find((f) => f.isMainTex)?.filename ||
+        allFiles.find(
+          (f) => f.filename.toLowerCase() === "main.tex" || f.filename.toLowerCase().endsWith("/main.tex")
+        )?.filename ||
+        allFiles.find((f) => f.content.includes("\\documentclass"))?.filename ||
+        allFiles[0]?.filename;
       if (!mainFile) return;
 
       workerRef.current.postMessage({ type: "compile", files: fileMap, mainFile });
@@ -377,10 +384,21 @@ export default function EditorPage() {
     }
   }
 
+  // Helper for safe JSON parsing from API responses
+  async function parseJsonResponse(res: Response) {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: `Upload request failed (${res.status} ${res.statusText || ""})`.trim() };
+    }
+  }
+
   // Upload handler for files or entire folders
   async function processUpload(uploadedFiles: File[]) {
     if (uploadedFiles.length === 0) return;
     let successCount = 0;
+    const uploadedFileDocs: FileDoc[] = [];
 
     for (const file of uploadedFiles) {
       let relPath = file.webkitRelativePath || file.name;
@@ -397,35 +415,67 @@ export default function EditorPage() {
         continue;
       }
 
-      const isTexOrCode = /\.(tex|bib|sty|cls|txt|md|cfg)$/i.test(file.name);
+      const isTexOrCode = /\.(tex|bib|sty|cls|txt|md|cfg|bst|def|clo)$/i.test(file.name);
 
-      if (isTexOrCode) {
-        const textContent = await file.text();
-        const res = await fetch(`/api/projects/${id}/files`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: sanitizedPath, content: textContent }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          setFiles((prev) => [...prev.filter((f) => f.filename !== sanitizedPath), data.file]);
-          successCount++;
+      try {
+        if (isTexOrCode) {
+          const textContent = await file.text();
+          const lower = sanitizedPath.toLowerCase();
+          const isMain =
+            lower === "main.tex" || lower.endsWith("/main.tex") || textContent.includes("\\documentclass");
+
+          const res = await fetch(`/api/projects/${id}/files`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: sanitizedPath, content: textContent, isMainTex: isMain }),
+          });
+          const data = await parseJsonResponse(res);
+          if (res.ok && data.file) {
+            uploadedFileDocs.push(data.file);
+            setFiles((prev) => {
+              const list = prev.filter((f) => f.filename !== sanitizedPath);
+              if (isMain) {
+                return [...list.map((f) => ({ ...f, isMainTex: false })), data.file];
+              }
+              return [...list, data.file];
+            });
+            successCount++;
+          } else {
+            toast.error(data.error || `Failed to upload ${file.name}`);
+          }
+        } else {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("filename", sanitizedPath);
+          const res = await fetch(`/api/projects/${id}/assets`, { method: "POST", body: formData });
+          const data = await parseJsonResponse(res);
+          if (res.ok && data.asset) {
+            setAssets((prev) => [...prev.filter((a) => a.filename !== sanitizedPath), data.asset]);
+            successCount++;
+          } else {
+            toast.error(data.error || `Failed to upload asset ${file.name}`);
+          }
         }
-      } else {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("filename", sanitizedPath);
-        const res = await fetch(`/api/projects/${id}/assets`, { method: "POST", body: formData });
-        const data = await res.json();
-        if (res.ok) {
-          setAssets((prev) => [...prev.filter((a) => a.filename !== sanitizedPath), data.asset]);
-          successCount++;
-        }
+      } catch (err) {
+        toast.error(`Error uploading ${file.name}`);
+        console.error("Upload error:", err);
       }
     }
 
     if (successCount > 0) {
-      toast.success(`Uploaded ${successCount} file(s)`);
+      toast.success(`Successfully uploaded ${successCount} file(s)`);
+
+      if (uploadedFileDocs.length > 0) {
+        const mainUploaded = uploadedFileDocs.find((f) => f.isMainTex) || uploadedFileDocs[0];
+        if (mainUploaded) {
+          setActiveFileId(mainUploaded._id);
+          setEditorContent(mainUploaded.content);
+        }
+        setFiles((currentFiles) => {
+          compile(mainUploaded ? mainUploaded.content : currentFiles[0]?.content || "", currentFiles);
+          return currentFiles;
+        });
+      }
     }
   }
 
@@ -487,11 +537,22 @@ export default function EditorPage() {
   }
 
   return (
-    <div className="flex flex-col h-full w-full" style={{ height: "100vh", overflow: "hidden", background: "var(--ink)" }}>
+    <div
+      className="flex flex-col w-full h-screen"
+      style={{
+        height: "100vh",
+        maxHeight: "100vh",
+        width: "100%",
+        minHeight: 0,
+        overflow: "hidden",
+        background: "var(--ink)",
+      }}
+    >
       {/* ── Top Navbar Header ── */}
       <div
         style={{
           height: "46px",
+          flexShrink: 0,
           background: "var(--ink)",
           borderBottom: "1px solid rgba(246, 242, 232, 0.12)",
           display: "flex",
@@ -549,6 +610,41 @@ export default function EditorPage() {
         <div style={{ width: "1px", height: "16px", background: "rgba(246,242,232,0.15)" }} />
 
         {/* Action Controls */}
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => {
+            const mainContent = activeFileId && activeFile ? editorContent : (files.find((f) => f.isMainTex)?.content || files[0]?.content || "");
+            compile(mainContent, files);
+          }}
+          disabled={compileStatus === "compiling"}
+          style={{
+            background: compileStatus === "compiling" ? "#D97706" : "var(--wax-amber, #E08214)",
+            color: "#FFFFFF",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "5px 12px",
+            borderRadius: "5px",
+            border: "none",
+            cursor: compileStatus === "compiling" ? "not-allowed" : "pointer",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+          }}
+          title="Compile LaTeX project to PDF"
+        >
+          {compileStatus === "compiling" ? (
+            <>
+              <span className="spinner" style={{ width: "12px", height: "12px", borderWidth: "2px" }} />
+              Compiling…
+            </>
+          ) : (
+            <>
+              <IconPlay size={12} />
+              Compile
+            </>
+          )}
+        </button>
+
         {isEditor && (
           <button
             className="btn btn-secondary-ink btn-sm"
@@ -582,7 +678,7 @@ export default function EditorPage() {
       </div>
 
       {/* ── Main Workspace split ── */}
-      <div className="flex flex-1 overflow-hidden" ref={containerRef}>
+      <div className="flex flex-1 overflow-hidden" ref={containerRef} style={{ minWidth: 0, minHeight: 0, height: "calc(100% - 46px)" }}>
         {/* ── File & Folder Tree Sidebar ── */}
         <div
           style={{
@@ -659,7 +755,7 @@ export default function EditorPage() {
 
           {/* Upload File and Folder Actions */}
           {isEditor && (
-            <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(246, 242, 232, 0.08)", display: "flex", flexDirection: "column", gap: "6px", flexShrink: 0 }}>
+            <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(246, 242, 232, 0.12)", background: "#11141A", display: "flex", flexDirection: "column", gap: "6px", flexShrink: 0 }}>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -678,22 +774,54 @@ export default function EditorPage() {
                 onChange={(e) => processUpload(Array.from(e.target.files || []))}
               />
 
-              <div style={{ display: "flex", gap: "6px" }}>
+              <div style={{ display: "flex", gap: "8px" }}>
                 <button
-                  className="btn btn-secondary-ink btn-sm flex-1"
+                  type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  style={{ fontSize: "11px", padding: "5px 6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
-                  title="Upload files"
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    background: "rgba(246, 242, 232, 0.07)",
+                    border: "1px solid rgba(246, 242, 232, 0.15)",
+                    borderRadius: "5px",
+                    color: "var(--parchment)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    transition: "background 0.15s, border-color 0.15s",
+                  }}
+                  title="Upload individual files"
                 >
-                  <IconUpload size={12} /> Files
+                  <IconUpload size={13} />
+                  <span>Upload Files</span>
                 </button>
                 <button
-                  className="btn btn-secondary-ink btn-sm flex-1"
+                  type="button"
                   onClick={() => folderInputRef.current?.click()}
-                  style={{ fontSize: "11px", padding: "5px 6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
-                  title="Upload folder"
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    background: "rgba(246, 242, 232, 0.07)",
+                    border: "1px solid rgba(246, 242, 232, 0.15)",
+                    borderRadius: "5px",
+                    color: "var(--parchment)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    transition: "background 0.15s, border-color 0.15s",
+                  }}
+                  title="Upload an entire folder"
                 >
-                  <IconFolderUpload size={12} /> Folder
+                  <IconFolderUpload size={13} />
+                  <span>Upload Folder</span>
                 </button>
               </div>
             </div>
@@ -701,14 +829,15 @@ export default function EditorPage() {
         </div>
 
         {/* ── Center/Right Workspace Panes ── */}
-        <div className="flex flex-1 overflow-hidden" style={{ position: "relative" }}>
+        <div className="flex flex-1 overflow-hidden" style={{ position: "relative", minWidth: 0, minHeight: 0, height: "100%" }}>
           {/* Monaco Editor Pane */}
           <div
             className="flex flex-col h-full"
-            style={{ width: `${editorWidthPercent}%`, background: "var(--ink)", overflow: "hidden", minHeight: 0 }}
+            style={{ width: `${editorWidthPercent}%`, minWidth: 0, flexShrink: 0, background: "var(--ink)", overflow: "hidden", minHeight: 0, height: "100%" }}
           >
             {activeFile && (
               <MonacoEditor
+                key={activeFile._id}
                 value={editorContent}
                 onChange={handleEditorChange}
                 filename={activeFile.filename}
@@ -727,15 +856,10 @@ export default function EditorPage() {
               }
             }}
             containerRef={containerRef}
-          >
-            <WaxSealButton
-              onCompile={() => compile(editorContent, files)}
-              status={compileStatus}
-            />
-          </StitchedSeamDivider>
+          />
 
           {/* PDF Preview Pane */}
-          <div className="flex flex-col flex-1 h-full overflow-hidden" style={{ background: "var(--parchment)" }}>
+          <div className="flex flex-col flex-1 h-full overflow-hidden" style={{ background: "var(--parchment)", minWidth: 0, minHeight: 0, height: "100%" }}>
             <PdfPreview pdfBytes={pdfBytes} compileStatus={compileStatus} />
 
             {/* Error Log Panel */}

@@ -75,9 +75,7 @@ function Sidebar({
     <aside className="sidebar">
       {/* Brand */}
       <div className="sidebar-brand">
-        <div className="sidebar-logo-mark">
-          <span className="sidebar-logo-letter">T</span>
-        </div>
+        <img src="/logo.png" alt="Texly" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
         <div>
           <div className="sidebar-brand-name">Texly</div>
           <div className="sidebar-brand-tag">LaTeX Editor</div>

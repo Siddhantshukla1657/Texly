@@ -279,3 +279,19 @@ export function IconAdmin({ size = 18, strokeWidth = 1.5, className = "", style,
     </svg>
   );
 }
+
+export function IconPlay({ size = 18, className = "", style, ...props }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      style={style}
+      {...props}
+    >
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  );
+}

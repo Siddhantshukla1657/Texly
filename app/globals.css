@@ -114,8 +114,14 @@
 /* ─── Reset & Base ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body {
+html, body, #__next {
   height: 100%;
+  max-height: 100vh;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
@@ -125,39 +131,39 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ─── Global Scrollbar ─────────────────────────────────────────────────────── */
-::-webkit-scrollbar          { width: 6px; height: 6px; }
-::-webkit-scrollbar-track    { background: transparent; }
-::-webkit-scrollbar-thumb    { background: #CBD5E1; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+/* ─── Global Scrollbar (Blue Theme) ─────────────────────────────────────────── */
+::-webkit-scrollbar          { width: 8px; height: 8px; }
+::-webkit-scrollbar-track    { background: rgba(15, 23, 42, 0.05); }
+::-webkit-scrollbar-thumb    { background: #2563EB; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #1D4ED8; }
 
 /* ─── PDF Scroll Area ─────────────────────────────────────────────────── ─── */
-/* This creates a prominent, clear scroller for the PDF viewer */
+/* Prominent blue scrollbar for the PDF viewer */
 .pdf-scroll-area {
   overflow-y: scroll !important;
   overflow-x: auto !important;
-  scrollbar-width: thin;
-  scrollbar-color: #94A3B8 #E8EDF4;
+  scrollbar-width: auto;
+  scrollbar-color: #2563EB #E8EDF4;
 }
-.pdf-scroll-area::-webkit-scrollbar          { width: 12px; height: 12px; }
-.pdf-scroll-area::-webkit-scrollbar-track    { background: #E8EDF4; border-left: 1px solid #D1D9E6; }
+.pdf-scroll-area::-webkit-scrollbar          { width: 10px; height: 10px; }
+.pdf-scroll-area::-webkit-scrollbar-track    { background: #E8EDF4; border-left: 1px solid #CBD5E1; }
 .pdf-scroll-area::-webkit-scrollbar-thumb    {
-  background: #94A3B8;
-  border-radius: 6px;
+  background: #2563EB;
+  border-radius: 5px;
   border: 2px solid #E8EDF4;
   min-height: 40px;
 }
-.pdf-scroll-area::-webkit-scrollbar-thumb:hover  { background: #64748B; }
-.pdf-scroll-area::-webkit-scrollbar-thumb:active { background: #475569; }
+.pdf-scroll-area::-webkit-scrollbar-thumb:hover  { background: #1D4ED8; }
+.pdf-scroll-area::-webkit-scrollbar-thumb:active { background: #1E3A8A; }
 .pdf-scroll-area::-webkit-scrollbar-corner       { background: #E8EDF4; }
 
-/* Sidebar scrollbar (subtle) */
-.sidebar-scroll::-webkit-scrollbar       { width: 3px; }
-.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+/* Sidebar scrollbar (blue tint) */
+.sidebar-scroll::-webkit-scrollbar       { width: 5px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: #2563EB; border-radius: 3px; }
 
 /* Dark scrollbar */
-.dark-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
-.dark-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.30); }
+.dark-scrollbar::-webkit-scrollbar-thumb { background: #2563EB; border-radius: 4px; }
+.dark-scrollbar::-webkit-scrollbar-thumb:hover { background: #3B82F6; }
 
 /* ─── Typography ────────────────────────────────────────────────────────────── */
 .font-serif { font-family: var(--font-serif); }

@@ -5,7 +5,17 @@ self.onmessage = async (event) => {
   if (!event.data || event.data.type !== "compile") return;
 
   const { files, mainFile } = event.data;
-  const mainContent = files[mainFile] || Object.values(files)[0] || "";
+  let mainContent = "";
+  if (files && typeof files === "object") {
+    if (mainFile && files[mainFile] !== undefined) {
+      mainContent = files[mainFile];
+    } else {
+      const mainKey = Object.keys(files).find(
+        (k) => k.toLowerCase() === "main.tex" || k.toLowerCase().endsWith("/main.tex")
+      );
+      mainContent = mainKey ? files[mainKey] : Object.values(files)[0] || "";
+    }
+  }
 
   try {
     const response = await fetch("/api/compile", {

@@ -4,8 +4,18 @@ import { Toaster } from "react-hot-toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Texly — Ink & Parchment LaTeX Editor",
-  description: "Write and compile LaTeX documents in your browser with the Ink & Parchment workspace.",
+  title: "Texly — Browser-Based LaTeX Editor",
+  description: "Write and compile LaTeX documents in your browser with Texly's powerful workspace.",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "Texly — Browser-Based LaTeX Editor",
+    description: "Write and compile LaTeX documents in your browser with Texly's powerful workspace.",
+    images: ["/logo.png"],
+  },
 };
 
 export default function RootLayout({
