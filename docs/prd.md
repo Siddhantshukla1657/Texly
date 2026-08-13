@@ -42,7 +42,7 @@ Texly compiles LaTeX documents via a server-proxied pipeline targeting **Ytotech
 1. User registration and authentication managed by Clerk.
 2. Every server route must evaluate session credentials against MongoDB `users` and `projectAccess` records.
 3. Non-admin users attempting to access unauthorized projects must be redirected to `/access-code`.
-4. Admin accounts (`siddhantshukla2022@gmail.com`) automatically land on `/admin`.
+4. Admin privileges are assigned through the product's admin controls and are not derived from a hardcoded email address.
 
 ### 4.3 Version History & Snapshots
 1. Users with Editor permissions must be able to save document snapshots with custom commit messages.

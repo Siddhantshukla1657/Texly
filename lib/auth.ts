@@ -18,18 +18,14 @@ export async function getAuthContext(): Promise<AuthContext | null> {
 
   let user = await User.findOne({ clerkId });
   if (!user) {
-    // First-time sign-in: create a user document
+    // If no admin exists in the system yet, auto-promote the first user
+    const hasAdmin = await User.exists({ isAdmin: true });
     user = await User.create({
       clerkId,
       username: clerkId, // Will be overwritten by page.tsx with real name
       email: "",
-      isAdmin: false,
+      isAdmin: !hasAdmin,
     });
-  }
-
-  const DEFAULT_ADMIN_EMAIL = "siddhantshukla2022@gmail.com";
-  if (user.email && user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() && !user.isAdmin) {
-    user.isAdmin = true;
   }
 
   // Update last login

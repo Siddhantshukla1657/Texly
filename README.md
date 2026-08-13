@@ -208,7 +208,72 @@ Ensure the following tools are installed locally:
 
 ## <img src="public/icons/shield.svg" width="20" height="20" valign="middle"/> &nbsp;Administrator Authorization
 
-Accounts registered under **`siddhantshukla2022@gmail.com`** are automatically assigned system administrator privileges (`isAdmin: true`) on initial sign-in and granted access to the `/admin` portal.
+Texly uses dynamic database-driven authorization (`isAdmin: boolean` on MongoDB `User` documents). Initial administrator setup works through three clean mechanisms:
+
+1. **Automatic First-User Bootstrapping:**
+   When setting up Texly with a fresh database, the **very first user** who registers and signs in is automatically designated as the initial Platform Administrator (`isAdmin: true`).
+
+2. **Environment Variable Configuration (Optional):**
+   You can specify `ADMIN_EMAIL=your-email@domain.com` in `.env.local`. When a user with a matching email logs in, they are automatically granted admin access.
+
+3. **Admin Panel Management:**
+   Once an administrator exists, they can grant or revoke admin privileges for any registered user directly via the interactive `/admin` dashboard.
+
+4. **Direct Database Override (Manual):**
+   Alternatively, run this MongoDB shell command after a user signs in:
+   ```javascript
+   db.users.updateOne({ email: "you@domain.com" }, { $set: { isAdmin: true } })
+   ```
+
+---
+
+## <img src="public/icons/camera.svg" width="20" height="20" valign="middle"/> &nbsp;Feature Screenshots
+
+<div align="center">
+  <h3>1. Authentication & Sign-In</h3>
+  <p>Secure user authentication interface powered by Clerk with support for OAuth providers, email magic links, and credential sign-in.</p>
+  <img src="screenshots/sign-in.png" alt="Texly sign in screen" width="720" />
+</div>
+
+<br/>
+
+<div align="center">
+  <h3>2. User Workspace & Project Dashboard</h3>
+  <p>Central workspace dashboard listing all accessible LaTeX projects with role badges (Editor vs. Viewer), project creation modal, and access code redemption actions.</p>
+  <img src="screenshots/dashboard.png" alt="Texly dashboard" width="720" />
+</div>
+
+<br/>
+
+<div align="center">
+  <h3>3. Access Code Redemption Modal</h3>
+  <p>Interactive popup dialog allowing team members to enter per-project access codes and redeem workspace permissions.</p>
+  <img src="screenshots/redeem-access-code.png" alt="Texly redeem access code modal" width="540" />
+</div>
+
+<br/>
+
+<div align="center">
+  <h3>4. Monaco LaTeX Editor & PDF Canvas Preview Workspace</h3>
+  <p>Full-featured browser editing environment equipped with Monaco Code Editor (syntax highlighting, line numbers), real-time TeX Live 2026 compilation toolbar, PDF.js canvas previewer, and compilation log panel.</p>
+  <img src="screenshots/editor.png" alt="Texly LaTeX editor" width="720" />
+</div>
+
+<br/>
+
+<div align="center">
+  <h3>5. Project Access & Code Sharing Control</h3>
+  <p>Management dialog for viewing hashed project access codes, rotating keys, and managing collaborator privileges.</p>
+  <img src="screenshots/share-project.png" alt="Texly share project modal" width="600" />
+</div>
+
+<br/>
+
+<div align="center">
+  <h3>6. Project Overview & File Inspection</h3>
+  <p>Detailed view displaying project metadata, file tree structure, and historic commit snapshots.</p>
+  <img src="screenshots/project-overview.png" alt="Texly project overview" width="720" />
+</div>
 
 ---
 

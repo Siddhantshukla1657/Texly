@@ -21,36 +21,28 @@ export default async function RootPage() {
 
   await connectDB();
 
-  const DEFAULT_ADMIN_EMAIL = "siddhantshukla2022@gmail.com";
-  const isDefaultAdmin = email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
-
-  // Find by clerkId first, then fall back to matching email (for pre-seeded admin)
+  // Find by clerkId first, then fall back to matching email for an existing user record.
   let user = await User.findOne({ clerkId });
 
   if (!user && email) {
-    // Check if there's a pre-seeded user with this email (e.g. admin seeded via CLI)
     user = await User.findOne({ email });
     if (user) {
-      // Bind the Clerk ID to the pre-seeded record
       user.clerkId = clerkId;
       user.username = username;
-      if (isDefaultAdmin) {
-        user.isAdmin = true;
-      }
       await user.save();
     }
   }
 
   if (!user) {
-    // Brand new user
+    const hasAdmin = await User.exists({ isAdmin: true });
+    const configuredAdmin = process.env.ADMIN_EMAIL && email.toLowerCase() === process.env.ADMIN_EMAIL.toLowerCase();
     user = await User.create({
       clerkId,
       username,
       email,
-      isAdmin: isDefaultAdmin,
+      isAdmin: !hasAdmin || !!configuredAdmin,
     });
-  } else if (isDefaultAdmin && !user.isAdmin) {
-    // Auto-promote default admin if logged in user has default admin email
+  } else if (email && process.env.ADMIN_EMAIL && email.toLowerCase() === process.env.ADMIN_EMAIL.toLowerCase() && !user.isAdmin) {
     user.isAdmin = true;
     await user.save();
   }

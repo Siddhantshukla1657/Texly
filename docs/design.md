@@ -34,7 +34,7 @@ Texly's core visual theme centers around a transformation: raw `.tex` code on on
 ```mermaid
 flowchart LR
     A[Landing Page] --> B[Clerk Authentication]
-    B --> C{Email match Admin?}
+    B --> C{user.isAdmin in DB?}
     C -->|Yes| D[Redirect to /admin]
     C -->|No| E[Redirect to /dashboard]
     E --> F[Dashboard: View Projects or Redeem Code]
