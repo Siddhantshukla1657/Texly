@@ -11,12 +11,12 @@
   "dependencies": {
     "@clerk/nextjs": "^6.12.12",
     "@monaco-editor/react": "^4.7.0",
-    "@vercel/blob": "^0.27.3",
+    "@vercel/blob": "^2.6.1",
     "bcryptjs": "^2.4.3",
     "diff-match-patch": "^1.0.5",
     "mongoose": "^8.14.1",
     "nanoid": "^5.1.5",
-    "next": "15.3.5",
+    "next": "^16.3.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -31,8 +31,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
-    "eslint": "^8",
-    "eslint-config-next": "15.3.5",
+    "eslint": "^10.8.0",
+    "eslint-config-next": "^16.3.0",
     "typescript": "^5"
   }
 }

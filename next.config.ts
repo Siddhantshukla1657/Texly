@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
     return config;
   },
   serverExternalPackages: ["mongoose"],
+  turbopack: {},
 };
 
 export default nextConfig;
