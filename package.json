@@ -1,0 +1,38 @@
+{
+  "name": "texly",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^6.12.12",
+    "@monaco-editor/react": "^4.7.0",
+    "@vercel/blob": "^0.27.3",
+    "bcryptjs": "^2.4.3",
+    "diff-match-patch": "^1.0.5",
+    "mongoose": "^8.14.1",
+    "nanoid": "^5.1.5",
+    "next": "15.3.5",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hot-toast": "^2.5.2",
+    "svix": "^1.99.1",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^8",
+    "eslint-config-next": "15.3.5",
+    "typescript": "^5"
+  }
+}
