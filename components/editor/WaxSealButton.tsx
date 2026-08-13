@@ -36,12 +36,12 @@ export default function WaxSealButton({ onCompile, status, disabled = false }: P
       {/* Badge feedback on edge */}
       {lastResult === "success" && (
         <span className="seal-badge seal-badge-success" title="Compile successful">
-          ✓
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </span>
       )}
       {lastResult === "error" && (
         <span className="seal-badge seal-badge-error" title="Compile failed">
-          !
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="12" y1="19" x2="12.01" y2="19"/></svg>
         </span>
       )}
     </button>

@@ -52,31 +52,34 @@ export default function MonacoEditor({
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
 
-    // Define custom Ink Theme
-    monacoInstance.editor.defineTheme("texly-ink-theme", {
-      base: "vs-dark",
+    // Define custom Light Off-White Theme
+    monacoInstance.editor.defineTheme("texly-light-theme", {
+      base: "vs",
       inherit: true,
       rules: [
-        { token: "keyword", foreground: "C8862B", fontStyle: "bold" },
-        { token: "comment", foreground: "64748b", fontStyle: "italic" },
-        { token: "string", foreground: "1F5C4F" },
-        { token: "delimiter.curly", foreground: "E4DCC8" },
-        { token: "delimiter.square", foreground: "E4DCC8" },
+        { token: "keyword", foreground: "2563EB", fontStyle: "bold" },
+        { token: "comment", foreground: "64748B", fontStyle: "italic" },
+        { token: "string", foreground: "D97706" },
+        { token: "delimiter.curly", foreground: "475569" },
+        { token: "delimiter.square", foreground: "475569" },
       ],
       colors: {
-        "editor.background": "#191D24",
-        "editor.foreground": "#F6F2E8",
-        "editorCursor.foreground": "#C8862B",
-        "editor.lineHighlightBackground": "#222731",
-        "editorLineNumber.foreground": "#4b5563",
-        "editorLineNumber.activeForeground": "#F6F2E8",
-        "editorGutter.background": "#191D24",
-        "editorWidget.background": "#191D24",
-        "editorWidget.border": "#E4DCC8",
+        "editor.background": "#FAF8F5",
+        "editor.foreground": "#0F172A",
+        "editorCursor.foreground": "#2563EB",
+        "editor.lineHighlightBackground": "#F2EFE9",
+        "editorLineNumber.foreground": "#94A3B8",
+        "editorLineNumber.activeForeground": "#2563EB",
+        "editorGutter.background": "#FAF8F5",
+        "editorWidget.background": "#FAF8F5",
+        "editorWidget.border": "#E3DEC3",
+        "scrollbarSlider.background": "rgba(148, 163, 184, 0.3)",
+        "scrollbarSlider.hoverBackground": "rgba(148, 163, 184, 0.6)",
+        "scrollbarSlider.activeBackground": "rgba(37, 99, 235, 0.8)",
       },
     });
 
-    monacoInstance.editor.setTheme("texly-ink-theme");
+    monacoInstance.editor.setTheme("texly-light-theme");
 
     // Register LaTeX language if not already registered
     const langs = monacoInstance.languages.getLanguages();
@@ -142,31 +145,42 @@ export default function MonacoEditor({
   }, [compileLog]);
 
   return (
-    <Editor
-      height="100%"
-      language={language}
-      value={value}
-      onChange={(v) => onChange(v || "")}
-      onMount={handleMount}
-      options={{
-        theme: "texly-ink-theme",
-        fontFamily: '"JetBrains Mono", monospace',
-        fontSize: 13,
-        lineHeight: 22,
-        minimap: { enabled: false },
-        wordWrap: "on",
-        lineNumbers: "on",
-        renderLineHighlight: "line",
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        tabSize: 2,
-        insertSpaces: true,
-        readOnly,
-        padding: { top: 12, bottom: 12 },
-        smoothScrolling: true,
-        cursorBlinking: "smooth",
-        cursorSmoothCaretAnimation: "on",
-      }}
-    />
+    <div style={{ flex: 1, minHeight: 0, width: "100%", height: "100%", position: "relative" }}>
+      <Editor
+        height="100%"
+        language={language}
+        value={value}
+        onChange={(v) => onChange(v || "")}
+        onMount={handleMount}
+        options={{
+          theme: "texly-light-theme",
+          fontFamily: '"JetBrains Mono", monospace',
+          fontSize: 13,
+          lineHeight: 22,
+          minimap: { enabled: false },
+          wordWrap: "on",
+          lineNumbers: "on",
+          renderLineHighlight: "line",
+          scrollBeyondLastLine: false,
+          automaticLayout: true,
+          tabSize: 2,
+          insertSpaces: true,
+          readOnly,
+          padding: { top: 12, bottom: 12 },
+          smoothScrolling: true,
+          cursorBlinking: "smooth",
+          cursorSmoothCaretAnimation: "on",
+          scrollbar: {
+            vertical: "visible",
+            horizontal: "auto",
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10,
+            useShadows: true,
+            verticalHasArrows: false,
+            horizontalHasArrows: false,
+          },
+        }}
+      />
+    </div>
   );
 }

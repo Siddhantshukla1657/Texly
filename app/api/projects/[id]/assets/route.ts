@@ -23,7 +23,8 @@ export async function POST(
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
   if (file.size > MAX_SIZE) return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
 
-  const filename = file.name.replace(/[^a-zA-Z0-9._\-]/g, "_");
+  const customFilename = (formData.get("filename") as string) || file.name;
+  const filename = customFilename.replace(/[^a-zA-Z0-9._\-/]/g, "_");
 
   const blob = await put(`projects/${id}/${filename}`, file, { access: "public" });
 

@@ -4,15 +4,15 @@
 
 /* ─── CSS Variables ─────────────────────────────────────────────────────────── */
 :root {
-  /* ── Background layers ── */
-  --bg:          #F0F4F9;
-  --surface:     #FFFFFF;
-  --surface-2:   #F7F9FC;
-  --surface-3:   #EEF2F8;
+  /* ── Background layers (Warm Off-White) ── */
+  --bg:          #F4F1EA;        /* warm parchment-stone base */
+  --surface:     #FAF8F5;        /* soft elegant off-white card/panel surface */
+  --surface-2:   #F5F2EC;        /* subtle off-white section bg */
+  --surface-3:   #EBE7DF;        /* deeper off-white surface */
 
   /* ── Borders ── */
-  --border:      #E1E8F0;
-  --border-2:    #CED7E4;
+  --border:      #E3DEC3;        /* soft warm border */
+  --border-2:    #D4CEBF;
 
   /* ── Brand Blue ── */
   --blue-50:   #EEF4FF;
@@ -92,8 +92,8 @@
 
   /* ── Legacy aliases (used by editor/pdf) ── */
   --ink:             #0F172A;
-  --parchment:       #FFFFFF;
-  --vellum:          #E1E8F0;
+  --parchment:       #FAF8F5;
+  --vellum:          #E3DEC3;
   --verdigris:       #2563EB;
   --verdigris-hover: #1D4ED8;
   --verdigris-10:    rgba(37,99,235,0.08);
@@ -878,3 +878,31 @@ h3, .h3 { font-size: 14px; font-weight: 600; color: var(--text-2); }
 }
 .empty-state-title { font-size: 17px; font-weight: 600; color: var(--text); }
 .empty-state-sub   { font-size: 13px; color: var(--text-3); max-width: 300px; line-height: 1.6; }
+
+/* ─── PDF Scroll Area ────────────────────────────────────────────────────────── */
+.pdf-scroll-area {
+  scrollbar-width: auto;
+  scrollbar-color: #B8B0A0 #E8E4DC;
+}
+.pdf-scroll-area::-webkit-scrollbar        { width: 14px; height: 14px; }
+.pdf-scroll-area::-webkit-scrollbar-track  { background: #E8E4DC; border-left: 1px solid #D6D0C4; }
+.pdf-scroll-area::-webkit-scrollbar-thumb  {
+  background: #B0A898;
+  border-radius: 7px;
+  border: 3px solid #E8E4DC;
+}
+.pdf-scroll-area::-webkit-scrollbar-thumb:hover  { background: #8C847A; }
+.pdf-scroll-area::-webkit-scrollbar-corner { background: #E8E4DC; }
+
+/* ─── Dark Sidebar Scrollbar ─────────────────────────────────────────────────── */
+.dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(246,242,232,0.15) transparent;
+}
+.dark-scrollbar::-webkit-scrollbar        { width: 6px; }
+.dark-scrollbar::-webkit-scrollbar-track  { background: transparent; }
+.dark-scrollbar::-webkit-scrollbar-thumb  {
+  background: rgba(246,242,232,0.18);
+  border-radius: 3px;
+}
+.dark-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(246,242,232,0.35); }

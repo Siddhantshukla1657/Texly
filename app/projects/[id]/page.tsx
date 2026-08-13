@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import toast from "react-hot-toast";
@@ -8,10 +8,21 @@ import Link from "next/link";
 import {
   IconDocument,
   IconFolder,
+  IconFolderOpen,
+  IconFolderPlus,
+  IconFilePlus,
+  IconUpload,
+  IconFolderUpload,
   IconHistory,
   IconKey,
   IconEdit,
   IconLock,
+  IconBib,
+  IconStyle,
+  IconImage,
+  IconClose,
+  IconChevronDown,
+  IconChevronRight,
 } from "@/components/icons";
 import WaxSealButton from "@/components/editor/WaxSealButton";
 import StitchedSeamDivider from "@/components/editor/StitchedSeamDivider";
@@ -40,6 +51,101 @@ interface Project {
 
 type CompileStatus = "idle" | "compiling" | "success" | "error";
 
+// ─── Tree Node Types & Helper ──────────────────────────────────────────────────
+interface TreeNode {
+  name: string;
+  path: string;
+  isFolder: boolean;
+  children: TreeNode[];
+  fileDoc?: FileDoc;
+  assetDoc?: Asset;
+}
+
+function buildFileTree(files: FileDoc[], assets: Asset[]): TreeNode[] {
+  const root: TreeNode[] = [];
+
+  const findOrCreateFolder = (parentList: TreeNode[], folderName: string, folderPath: string): TreeNode => {
+    let folder = parentList.find((node) => node.isFolder && node.name === folderName);
+    if (!folder) {
+      folder = {
+        name: folderName,
+        path: folderPath,
+        isFolder: true,
+        children: [],
+      };
+      parentList.push(folder);
+    }
+    return folder;
+  };
+
+  // Process text files
+  files.forEach((file) => {
+    const parts = file.filename.split("/").filter(Boolean);
+    let currentLevel = root;
+    let currentPath = "";
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const folderNode = findOrCreateFolder(currentLevel, part, currentPath);
+      currentLevel = folderNode.children;
+    }
+
+    const fileName = parts[parts.length - 1] || file.filename;
+    currentLevel.push({
+      name: fileName,
+      path: file.filename,
+      isFolder: false,
+      children: [],
+      fileDoc: file,
+    });
+  });
+
+  // Process binary assets
+  assets.forEach((asset) => {
+    const parts = asset.filename.split("/").filter(Boolean);
+    let currentLevel = root;
+    let currentPath = "";
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const folderNode = findOrCreateFolder(currentLevel, part, currentPath);
+      currentLevel = folderNode.children;
+    }
+
+    const fileName = parts[parts.length - 1] || asset.filename;
+    const existing = currentLevel.find((node) => !node.isFolder && node.name === fileName);
+    if (existing) {
+      existing.assetDoc = asset;
+    } else {
+      currentLevel.push({
+        name: fileName,
+        path: asset.filename,
+        isFolder: false,
+        children: [],
+        assetDoc: asset,
+      });
+    }
+  });
+
+  // Sort folders first, then files alphabetically
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.isFolder && !b.isFolder) return -1;
+      if (!a.isFolder && b.isFolder) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    nodes.forEach((node) => {
+      if (node.isFolder) sortNodes(node.children);
+    });
+  };
+
+  sortNodes(root);
+  return root;
+}
+
+// ─── Main Editor Component ─────────────────────────────────────────────────────
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -57,6 +163,10 @@ export default function EditorPage() {
   const [showShare, setShowShare] = useState(false);
   const [showNewFile, setShowNewFile] = useState(false);
   const [newFileName, setNewFileName] = useState("");
+  const [targetFolderPath, setTargetFolderPath] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [showCommit, setShowCommit] = useState(false);
   const [commitMsg, setCommitMsg] = useState("");
   const [committing, setCommitting] = useState(false);
@@ -70,13 +180,16 @@ export default function EditorPage() {
   const [generatingCode, setGeneratingCode] = useState(false);
 
   const workerRef = useRef<Worker | null>(null);
-  const compileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const hasCompiledOnLoad = useRef(false);
 
   const activeFile = files.find((f) => f._id === activeFileId);
+  const fileTree = useMemo(() => buildFileTree(files, assets), [files, assets]);
 
-  // Init worker
+  // Init WebWorker
   useEffect(() => {
     const worker = new Worker("/latex.worker.js");
     worker.onmessage = (e) => {
@@ -119,7 +232,7 @@ export default function EditorPage() {
       });
   }, [id, router]);
 
-  // Check role
+  // Check user role
   useEffect(() => {
     fetch("/api/me/access")
       .then((r) => r.json())
@@ -132,7 +245,7 @@ export default function EditorPage() {
       });
   }, [id]);
 
-  // Compile
+  // Compile LaTeX
   const compile = useCallback(
     (currentContent: string, allFiles: FileDoc[]) => {
       if (!workerRef.current) return;
@@ -153,6 +266,15 @@ export default function EditorPage() {
     },
     [activeFileId, assets]
   );
+
+  // Auto-compile by default once project loads
+  useEffect(() => {
+    if (!loading && files.length > 0 && !hasCompiledOnLoad.current && workerRef.current) {
+      hasCompiledOnLoad.current = true;
+      const mainContent = files.find((f) => f.isMainTex)?.content || files[0]?.content || "";
+      compile(mainContent, files);
+    }
+  }, [loading, files, compile]);
 
   function handleEditorChange(value: string) {
     setEditorContent(value);
@@ -188,17 +310,53 @@ export default function EditorPage() {
 
   async function createFile(e: React.FormEvent) {
     e.preventDefault();
+    let fullPath = newFileName.trim();
+    if (targetFolderPath && !fullPath.startsWith(targetFolderPath + "/")) {
+      fullPath = `${targetFolderPath}/${fullPath}`;
+    }
+
     const res = await fetch(`/api/projects/${id}/files`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: newFileName }),
+      body: JSON.stringify({ filename: fullPath }),
     });
     const data = await res.json();
     if (res.ok) {
       setFiles((prev) => [...prev, data.file]);
       setShowNewFile(false);
       setNewFileName("");
+      setTargetFolderPath("");
       switchFile(data.file);
+      toast.success(`Created file ${data.file.filename}`);
+    } else {
+      toast.error(data.error);
+    }
+  }
+
+  async function createFolder(e: React.FormEvent) {
+    e.preventDefault();
+    let folderPath = newFolderName.trim().replace(/[^a-zA-Z0-9._\-/]/g, "_");
+    if (!folderPath) return;
+
+    if (targetFolderPath && !folderPath.startsWith(targetFolderPath + "/")) {
+      folderPath = `${targetFolderPath}/${folderPath}`;
+    }
+
+    // Initialize folder with a default TeX file
+    const placeholderFile = `${folderPath}/section.tex`;
+    const res = await fetch(`/api/projects/${id}/files`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: placeholderFile, content: `% ${folderPath} section\n` }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setFiles((prev) => [...prev, data.file]);
+      setShowNewFolder(false);
+      setNewFolderName("");
+      setTargetFolderPath("");
+      toast.success(`Created folder "${folderPath}"`);
+      setExpandedFolders((prev) => ({ ...prev, [folderPath]: true }));
     } else {
       toast.error(data.error);
     }
@@ -219,41 +377,48 @@ export default function EditorPage() {
     }
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const uploadedFiles = Array.from(e.target.files || []);
+  // Upload handler for files or entire folders
+  async function processUpload(uploadedFiles: File[]) {
     if (uploadedFiles.length === 0) return;
-
     let successCount = 0;
+
     for (const file of uploadedFiles) {
-      const relPath = file.webkitRelativePath || file.name;
-      const sanitizedName = relPath.replace(/[^a-zA-Z0-9._\-/]/g, "_");
+      let relPath = file.webkitRelativePath || file.name;
+      const parts = relPath.split("/");
+      if (parts.length > 1 && file.webkitRelativePath) {
+        relPath = parts.slice(1).join("/");
+      }
+      if (!relPath) relPath = file.name;
+
+      const sanitizedPath = relPath.replace(/[^a-zA-Z0-9._\-/]/g, "_");
 
       if (file.size > 10 * 1024 * 1024) {
         toast.error(`File ${file.name} is too large (>10MB)`);
         continue;
       }
 
-      const isTexOrCode = /\.(tex|bib|sty|cls|txt|md)$/i.test(file.name);
+      const isTexOrCode = /\.(tex|bib|sty|cls|txt|md|cfg)$/i.test(file.name);
 
       if (isTexOrCode) {
         const textContent = await file.text();
         const res = await fetch(`/api/projects/${id}/files`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: sanitizedName, content: textContent }),
+          body: JSON.stringify({ filename: sanitizedPath, content: textContent }),
         });
         const data = await res.json();
         if (res.ok) {
-          setFiles((prev) => [...prev.filter((f) => f.filename !== sanitizedName), data.file]);
+          setFiles((prev) => [...prev.filter((f) => f.filename !== sanitizedPath), data.file]);
           successCount++;
         }
       } else {
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("filename", sanitizedPath);
         const res = await fetch(`/api/projects/${id}/assets`, { method: "POST", body: formData });
         const data = await res.json();
         if (res.ok) {
-          setAssets((prev) => [...prev.filter((a) => a.filename !== sanitizedName), data.asset]);
+          setAssets((prev) => [...prev.filter((a) => a.filename !== sanitizedPath), data.asset]);
           successCount++;
         }
       }
@@ -306,17 +471,9 @@ export default function EditorPage() {
     }
   }
 
-  // Ctrl+Enter compile shortcut
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-        e.preventDefault();
-        compile(editorContent, files);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [compile, editorContent, files]);
+  const toggleFolder = (path: string) => {
+    setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
+  };
 
   if (loading) {
     return (
@@ -331,7 +488,7 @@ export default function EditorPage() {
 
   return (
     <div className="flex flex-col h-full w-full" style={{ height: "100vh", overflow: "hidden", background: "var(--ink)" }}>
-      {/* Top Navbar Header (Ink Surface) */}
+      {/* ── Top Navbar Header ── */}
       <div
         style={{
           height: "46px",
@@ -424,12 +581,12 @@ export default function EditorPage() {
         <UserButton />
       </div>
 
-      {/* Main Workspace split */}
+      {/* ── Main Workspace split ── */}
       <div className="flex flex-1 overflow-hidden" ref={containerRef}>
-        {/* Left: File Tree Sidebar (Ink Surface) */}
+        {/* ── File & Folder Tree Sidebar ── */}
         <div
           style={{
-            width: "220px",
+            width: "240px",
             background: "#15181E",
             borderRight: "1px solid rgba(246, 242, 232, 0.1)",
             display: "flex",
@@ -449,132 +606,106 @@ export default function EditorPage() {
           >
             <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--parchment-60)", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               <IconFolder size={14} />
-              Files
+              Files & Folders
             </div>
             {isEditor && (
-              <button
-                className="btn btn-ghost-ink btn-icon"
-                onClick={() => setShowNewFile(true)}
-                title="New file"
-                style={{ padding: "2px 4px" }}
-              >
-                +
-              </button>
+              <div style={{ display: "flex", gap: "4px" }}>
+                <button
+                  className="btn btn-ghost-ink btn-icon"
+                  onClick={() => {
+                    setTargetFolderPath("");
+                    setShowNewFolder(true);
+                  }}
+                  title="New Folder"
+                  style={{ padding: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <IconFolderPlus size={14} />
+                </button>
+                <button
+                  className="btn btn-ghost-ink btn-icon"
+                  onClick={() => {
+                    setTargetFolderPath("");
+                    setShowNewFile(true);
+                  }}
+                  title="New File"
+                  style={{ padding: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <IconFilePlus size={14} />
+                </button>
+              </div>
             )}
           </div>
 
-          {/* File list */}
+          {/* File & Folder Nested Tree List */}
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }} className="dark-scrollbar">
-            {files.map((file) => {
-              const isActive = activeFileId === file._id;
-              return (
-                <div
-                  key={file._id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    background: isActive ? "rgba(246, 242, 232, 0.08)" : "transparent",
-                    borderLeft: isActive ? "2px solid var(--verdigris)" : "2px solid transparent",
-                    color: isActive ? "var(--parchment)" : "var(--parchment-60)",
-                    fontSize: "12px",
-                    fontFamily: "var(--font-mono)",
-                    gap: "8px",
-                  }}
-                  onClick={() => switchFile(file)}
-                >
-                  <IconDocument size={14} style={{ color: isActive ? "var(--verdigris)" : "inherit" }} />
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {file.filename}
-                  </span>
-                  {isEditor && !file.isMainTex && (
-                    <button
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "var(--parchment-35)",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        padding: "2px",
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteFile(file._id);
-                      }}
-                      title="Delete file"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Assets */}
-            {assets.length > 0 && (
-              <>
-                <div
-                  style={{
-                    padding: "10px 12px 4px",
-                    fontSize: "10px",
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    color: "var(--parchment-35)",
-                  }}
-                >
-                  Assets
-                </div>
-                {assets.map((asset) => (
-                  <div
-                    key={asset._id}
-                    style={{
-                      padding: "4px 12px",
-                      fontSize: "11px",
-                      color: "var(--parchment-60)",
-                      fontFamily: "var(--font-mono)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={asset.blobUrl}
-                  >
-                    🖼 {asset.filename}
-                  </div>
-                ))}
-              </>
-            )}
+            {fileTree.map((node) => (
+              <TreeNodeItem
+                key={node.path}
+                node={node}
+                depth={0}
+                activeFileId={activeFileId}
+                expandedFolders={expandedFolders}
+                onToggleFolder={toggleFolder}
+                onSelectFile={switchFile}
+                onDeleteFile={deleteFile}
+                onAddFileToFolder={(folderPath) => {
+                  setTargetFolderPath(folderPath);
+                  setShowNewFile(true);
+                }}
+                isEditor={isEditor}
+              />
+            ))}
           </div>
 
-          {/* Upload control */}
+          {/* Upload File and Folder Actions */}
           {isEditor && (
-            <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(246, 242, 232, 0.08)", display: "flex", flexDirection: "column", gap: "4px" }}>
-              <label
-                style={{
-                  display: "block",
-                  padding: "5px 8px",
-                  borderRadius: "4px",
-                  border: "1px dashed rgba(246, 242, 232, 0.2)",
-                  textAlign: "center",
-                  fontSize: "11px",
-                  color: "var(--parchment-60)",
-                  cursor: "pointer",
-                }}
-              >
-                Upload File / Assets
-                <input type="file" style={{ display: "none" }} multiple onChange={handleFileUpload} />
-              </label>
+            <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(246, 242, 232, 0.08)", display: "flex", flexDirection: "column", gap: "6px", flexShrink: 0 }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: "none" }}
+                multiple
+                onChange={(e) => processUpload(Array.from(e.target.files || []))}
+              />
+              <input
+                ref={folderInputRef}
+                type="file"
+                style={{ display: "none" }}
+                // @ts-ignore
+                webkitdirectory=""
+                directory=""
+                multiple
+                onChange={(e) => processUpload(Array.from(e.target.files || []))}
+              />
+
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  className="btn btn-secondary-ink btn-sm flex-1"
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{ fontSize: "11px", padding: "5px 6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
+                  title="Upload files"
+                >
+                  <IconUpload size={12} /> Files
+                </button>
+                <button
+                  className="btn btn-secondary-ink btn-sm flex-1"
+                  onClick={() => folderInputRef.current?.click()}
+                  style={{ fontSize: "11px", padding: "5px 6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
+                  title="Upload folder"
+                >
+                  <IconFolderUpload size={12} /> Folder
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Center/Right Workspace Panes */}
+        {/* ── Center/Right Workspace Panes ── */}
         <div className="flex flex-1 overflow-hidden" style={{ position: "relative" }}>
-          {/* Monaco Editor Pane (Ink Surface) */}
+          {/* Monaco Editor Pane */}
           <div
             className="flex flex-col h-full"
-            style={{ width: `${editorWidthPercent}%`, background: "var(--ink)", overflow: "hidden" }}
+            style={{ width: `${editorWidthPercent}%`, background: "var(--ink)", overflow: "hidden", minHeight: 0 }}
           >
             {activeFile && (
               <MonacoEditor
@@ -587,7 +718,7 @@ export default function EditorPage() {
             )}
           </div>
 
-          {/* Stitched Seam Resizable Divider with Anchored Wax Seal */}
+          {/* Stitched Seam Resizable Divider */}
           <StitchedSeamDivider
             leftWidth={editorWidthPercent}
             onResize={(deltaOrPercent) => {
@@ -603,11 +734,11 @@ export default function EditorPage() {
             />
           </StitchedSeamDivider>
 
-          {/* PDF Preview Pane (Parchment Surface) */}
+          {/* PDF Preview Pane */}
           <div className="flex flex-col flex-1 h-full overflow-hidden" style={{ background: "var(--parchment)" }}>
             <PdfPreview pdfBytes={pdfBytes} compileStatus={compileStatus} />
 
-            {/* Error Log Panel in Marginalia Red */}
+            {/* Error Log Panel */}
             {compileStatus === "error" && compileLog && (
               <div
                 style={{
@@ -624,8 +755,8 @@ export default function EditorPage() {
               >
                 <div style={{ fontWeight: 600, marginBottom: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span>Compilation Error Log</span>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setCompileLog("")} style={{ color: "var(--marginalia-red)" }}>
-                    ✕ Close
+                  <button className="btn btn-ghost btn-sm" onClick={() => setCompileLog("")} style={{ color: "var(--marginalia-red)", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <IconClose size={12} /> Close
                   </button>
                 </div>
                 <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{compileLog}</pre>
@@ -654,17 +785,17 @@ export default function EditorPage() {
         </div>
       </div>
 
-      {/* New File Modal */}
+      {/* ── New File Modal ── */}
       {showNewFile && (
         <div className="modal-overlay" onClick={() => setShowNewFile(false)}>
           <div className="modal-ink" onClick={(e) => e.stopPropagation()}>
             <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", fontFamily: "var(--font-serif)" }}>
-              Create New File
+              Create New File {targetFolderPath ? `in /${targetFolderPath}` : ""}
             </div>
             <form onSubmit={createFile}>
               <div style={{ marginBottom: "16px" }}>
                 <label style={{ fontSize: "12px", color: "var(--parchment-60)", display: "block", marginBottom: "6px" }}>
-                  Filename (e.g. section1.tex, references.bib)
+                  Filename or path (e.g. section1.tex, chapters/intro.tex)
                 </label>
                 <input
                   className="input-ink input-mono"
@@ -679,7 +810,7 @@ export default function EditorPage() {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary flex-1" disabled={!newFileName.trim()}>
-                  Create
+                  Create File
                 </button>
               </div>
             </form>
@@ -687,7 +818,40 @@ export default function EditorPage() {
         </div>
       )}
 
-      {/* Commit Modal */}
+      {/* ── New Folder Modal ── */}
+      {showNewFolder && (
+        <div className="modal-overlay" onClick={() => setShowNewFolder(false)}>
+          <div className="modal-ink" onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", fontFamily: "var(--font-serif)" }}>
+              Create New Folder {targetFolderPath ? `in /${targetFolderPath}` : ""}
+            </div>
+            <form onSubmit={createFolder}>
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ fontSize: "12px", color: "var(--parchment-60)", display: "block", marginBottom: "6px" }}>
+                  Folder Name (e.g. chapters, figures, sections)
+                </label>
+                <input
+                  className="input-ink input-mono"
+                  placeholder="chapters"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2 justify-between">
+                <button type="button" className="btn btn-secondary-ink flex-1" onClick={() => setShowNewFolder(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary flex-1" disabled={!newFolderName.trim()}>
+                  Create Folder
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Commit Modal ── */}
       {showCommit && (
         <div className="modal-overlay" onClick={() => setShowCommit(false)}>
           <div className="modal-ink" onClick={(e) => e.stopPropagation()}>
@@ -720,7 +884,7 @@ export default function EditorPage() {
         </div>
       )}
 
-      {/* Share Modal */}
+      {/* ── Share Modal ── */}
       {showShare && (
         <div className="modal-overlay" onClick={() => setShowShare(false)}>
           <div className="modal-parchment" onClick={(e) => e.stopPropagation()}>
@@ -795,6 +959,156 @@ export default function EditorPage() {
   );
 }
 
+// ─── Recursive Tree Node Item View ──────────────────────────────────────────────
+function TreeNodeItem({
+  node,
+  depth,
+  activeFileId,
+  expandedFolders,
+  onToggleFolder,
+  onSelectFile,
+  onDeleteFile,
+  onAddFileToFolder,
+  isEditor,
+}: {
+  node: TreeNode;
+  depth: number;
+  activeFileId: string | null;
+  expandedFolders: Record<string, boolean>;
+  onToggleFolder: (path: string) => void;
+  onSelectFile: (file: FileDoc) => void;
+  onDeleteFile: (fileId: string) => void;
+  onAddFileToFolder: (folderPath: string) => void;
+  isEditor: boolean;
+}) {
+  const isExpanded = expandedFolders[node.path] !== false; // expanded by default
+
+  if (node.isFolder) {
+    return (
+      <div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            padding: "5px 10px",
+            paddingLeft: `${10 + depth * 14}px`,
+            cursor: "pointer",
+            color: "var(--parchment-60)",
+            fontSize: "12px",
+            fontFamily: "var(--font-sans)",
+            fontWeight: 600,
+            userSelect: "none",
+            gap: "6px",
+          }}
+          onClick={() => onToggleFolder(node.path)}
+        >
+          <span style={{ width: "12px", color: "var(--parchment-35)", display: "flex", alignItems: "center" }}>
+            {isExpanded ? <IconChevronDown size={10} strokeWidth={2.5} /> : <IconChevronRight size={10} strokeWidth={2.5} />}
+          </span>
+          <span style={{ display: "flex", alignItems: "center", color: "var(--parchment-60)" }}>{isExpanded ? <IconFolderOpen size={13} /> : <IconFolder size={13} />}</span>
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {node.name}
+          </span>
+          <span style={{ fontSize: "10px", color: "var(--parchment-35)", fontFamily: "var(--font-mono)" }}>
+            {node.children.length}
+          </span>
+          {isEditor && (
+            <button
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--parchment-60)",
+                cursor: "pointer",
+                fontSize: "12px",
+                padding: "0 4px",
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddFileToFolder(node.path);
+              }}
+              title={`Add file to ${node.name}`}
+            >
+              +
+            </button>
+          )}
+        </div>
+
+        {isExpanded && (
+          <div>
+            {node.children.map((child) => (
+              <TreeNodeItem
+                key={child.path}
+                node={child}
+                depth={depth + 1}
+                activeFileId={activeFileId}
+                expandedFolders={expandedFolders}
+                onToggleFolder={onToggleFolder}
+                onSelectFile={onSelectFile}
+                onDeleteFile={onDeleteFile}
+                onAddFileToFolder={onAddFileToFolder}
+                isEditor={isEditor}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // File or Asset item
+  const file = node.fileDoc;
+  const asset = node.assetDoc;
+  const isActive = file && activeFileId === file._id;
+
+  const ext = node.name.split(".").pop()?.toLowerCase();
+  const IconFileType = ext === "bib" ? IconBib : ext === "sty" || ext === "cls" ? IconStyle : asset ? IconImage : IconDocument;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "5px 10px",
+        paddingLeft: `${14 + depth * 14}px`,
+        cursor: file ? "pointer" : "default",
+        background: isActive ? "rgba(246, 242, 232, 0.08)" : "transparent",
+        borderLeft: isActive ? "2px solid var(--verdigris)" : "2px solid transparent",
+        color: isActive ? "var(--parchment)" : "var(--parchment-60)",
+        fontSize: "12px",
+        fontFamily: "var(--font-mono)",
+        gap: "6px",
+      }}
+      onClick={() => file && onSelectFile(file)}
+    >
+      <span style={{ display: "flex", alignItems: "center", color: "var(--parchment-35)" }}><IconFileType size={13} /></span>
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {node.name}
+      </span>
+      {isEditor && file && !file.isMainTex && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteFile(file._id);
+          }}
+          title="Delete file"
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--parchment-35)",
+            cursor: "pointer",
+            fontSize: "11px",
+            padding: "0 2px",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <IconClose size={11} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── History Drawer Component ──────────────────────────────────────────────────
 function HistoryDrawer({
   projectId,
@@ -839,61 +1153,56 @@ function HistoryDrawer({
         width: "300px",
         background: "#15181E",
         borderLeft: "1px solid rgba(246, 242, 232, 0.12)",
-        zIndex: 20,
         display: "flex",
         flexDirection: "column",
+        zIndex: 50,
+        color: "var(--parchment)",
       }}
     >
-      <div
-        style={{
-          padding: "12px 16px",
-          borderBottom: "1px solid rgba(246, 242, 232, 0.08)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          color: "var(--parchment)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 600, fontSize: "13px" }}>
-          <IconHistory size={16} /> Version History
+      <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(246, 242, 232, 0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: "16px", fontWeight: 600 }}>
+          Version History
         </div>
-        <button className="btn btn-ghost-ink btn-icon" onClick={onClose}>✕</button>
+        <button className="btn btn-ghost-ink btn-icon" onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><IconClose size={14} /></button>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }} className="dark-scrollbar">
+      <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }} className="dark-scrollbar">
         {loading ? (
-          <div className="flex justify-center" style={{ padding: "32px" }}><div className="spinner spinner-ink" /></div>
+          <div className="flex justify-center" style={{ padding: "24px" }}><div className="spinner spinner-ink" /></div>
         ) : commits.length === 0 ? (
-          <div style={{ padding: "24px", color: "var(--parchment-35)", fontSize: "12px", textAlign: "center" }}>
-            No commits recorded yet.
+          <div style={{ fontSize: "13px", color: "var(--parchment-60)", textAlign: "center", paddingTop: "32px" }}>
+            No commits created yet.
           </div>
         ) : (
-          commits.map((commit) => (
-            <div
-              key={commit._id}
-              style={{
-                padding: "12px 16px",
-                borderBottom: "1px solid rgba(246, 242, 232, 0.06)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "4px",
-              }}
-            >
-              <div style={{ fontSize: "13px", fontWeight: 500, color: "var(--parchment)" }}>
-                {commit.message || "Snapshot"}
-              </div>
-              <div style={{ fontSize: "11px", color: "var(--parchment-35)" }}>
-                {new Date(commit.createdAt).toLocaleString()} · {commit.authorId?.username}
-              </div>
-              <button
-                className="btn btn-ghost-ink btn-sm"
-                onClick={() => restoreCommit(commit._id)}
-                style={{ alignSelf: "flex-start", marginTop: "4px", fontSize: "11px" }}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {commits.map((c) => (
+              <div
+                key={c._id}
+                style={{
+                  padding: "12px",
+                  background: "rgba(246, 242, 232, 0.04)",
+                  border: "1px solid rgba(246, 242, 232, 0.08)",
+                  borderRadius: "6px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                }}
               >
-                Restore
-              </button>
-            </div>
-          ))
+                <div style={{ fontWeight: 600, fontSize: "13px" }}>{c.message}</div>
+                <div style={{ fontSize: "11px", color: "var(--parchment-35)", display: "flex", justifyContent: "space-between" }}>
+                  <span>{c.authorId?.username || "Unknown"}</span>
+                  <span>{new Date(c.createdAt).toLocaleDateString()}</span>
+                </div>
+                <button
+                  className="btn btn-secondary-ink btn-sm"
+                  style={{ marginTop: "4px", fontSize: "11px" }}
+                  onClick={() => restoreCommit(c._id)}
+                >
+                  Restore Version
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

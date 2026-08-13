@@ -7,7 +7,7 @@ import { File } from "@/lib/models";
 const ALLOWED_EXT = [".tex", ".bib", ".cls", ".sty", ".txt", ".md"];
 
 function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._\-]/g, "_").slice(0, 200);
+  return name.replace(/[^a-zA-Z0-9._\-/]/g, "_").slice(0, 200);
 }
 
 export async function GET(
