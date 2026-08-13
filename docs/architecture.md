@@ -1,92 +1,135 @@
 # Texly — Architecture
 
-> **Status:** Draft | **Last updated:** August 5, 2026
+> **Status:** Production Architecture | **Last updated:** August 5, 2026
 
 ## 1. System Overview
-Texly runs as a single Next.js application deployed on Vercel, handling both the frontend and a thin API layer. Two deliberate choices shape everything else: LaTeX compilation happens entirely in the browser via a WASM engine, not on the server, and access control runs through a single admin account plus per-project access codes rather than open self-service signup. The backend stays limited to auth-gate logic, CRUD, and metadata — no TeX Live install, no compile queue, no invite/approval workflow to maintain. Clerk handles the mechanics of authentication (sign-up, sign-in, sessions); a custom layer on top, backed by MongoDB, decides whether a given authenticated session belongs to the admin, a user with existing project access, or a user who needs to redeem a code first.
+
+Texly operates as a single Next.js 16 application deployed on Vercel, combining a modern React 19 frontend with a set of serverless API Route Handlers.
+
+Two core architectural decisions shape the system:
+1. **Server-Proxied TeX Live 2026 Compilation Engine:** LaTeX compilation is handled by a serverless API proxy (`/api/compile`) that preprocesses LaTeX sources (inlining `\input`/`\include` directives and resolving auxiliary preamble files) and dispatches JSON payloads with Base64 binary image resources to **Ytotech's TeX Live 2026** API (`https://latex.ytotech.com/builds/sync`), backed by **TeXLive.net** as a failover compiler.
+2. **Role-Gated Access & Access Code Authorization:** Authentication is managed via Clerk, while app-level authorization runs through a custom Mongoose/MongoDB access gate (`lib/auth.ts`). Exactly one administrator account (`isAdmin: true`) has full system oversight, while non-admin users access projects by redeeming hashed per-project access codes.
+
+---
 
 ## 2. Architecture Diagram
 
 ```mermaid
 graph TD
-    Browser["Browser: Monaco Editor + WASM LaTeX Engine + pdf.js"]
-    API["Next.js API Routes (Vercel serverless/edge)"]
-    Gate["Auth Gate (admin check / access-code routing)"]
-    DB[(MongoDB Atlas)]
-    Blob["Vercel Blob (images/assets)"]
-    Auth["Clerk (sign-up/sign-in/session)"]
+    subgraph Client["Browser Workspace"]
+        UI["React 19 Shell & Monaco Editor"]
+        Worker["Web Worker (latex.worker.js)"]
+        PdfViewer["PdfPreview (PDF.js Canvas)"]
+    end
 
-    Browser -->|CRUD: projects, files, commits, access| API
-    Browser -->|upload/fetch assets| Blob
-    Browser -.session/token.-> Auth
-    API --> Gate
-    Gate --> DB
-    API -.verify session.-> Auth
+    subgraph AuthLayer["Auth & Access Control"]
+        Clerk["Clerk Auth"]
+        AuthGate["Auth Gate (lib/auth.ts)"]
+    end
+
+    subgraph Backend["Next.js API Layer (Vercel Serverless)"]
+        CompileAPI["/api/compile Route Handler"]
+        ProjectAPI["/api/projects & /api/files"]
+        CommitAPI["/api/commits"]
+        AccessAPI["/api/access-code"]
+        AdminAPI["/api/admin"]
+    end
+
+    subgraph CompilerEngine["LaTeX Compilation Pipeline"]
+        Inliner["Import & Filecontents Inliner"]
+        Ytotech["Ytotech TeX Live 2026 Service\n(latex.ytotech.com)"]
+        TeXLiveFallback["TeXLive.net CGI Fallback"]
+    end
+
+    subgraph DataStorage["Data & Asset Storage"]
+        MongoDB[(MongoDB Atlas)]
+        VercelBlob["Vercel Blob Storage"]
+    end
+
+    %% Flow connections
+    UI -->|Editing & Compile Triggers| Worker
+    Worker -->|JSON Payload| CompileAPI
+    UI -->|Upload Image Assets| VercelBlob
+
+    CompileAPI --> AuthGate
+    ProjectAPI --> AuthGate
+    AdminAPI --> AuthGate
+    AccessAPI --> AuthGate
+    AuthGate --> Clerk
+
+    ProjectAPI --> MongoDB
+    CommitAPI --> MongoDB
+    AccessAPI --> MongoDB
+    AdminAPI --> MongoDB
+
+    CompileAPI --> Inliner
+    Inliner -->|Primary JSON + Base64| Ytotech
+    Ytotech -- Disruption Fallback --> TeXLiveFallback
+    Ytotech -->|PDF ArrayBuffer| CompileAPI
+    TeXLiveFallback -->|PDF ArrayBuffer| CompileAPI
+
+    CompileAPI -->|Base64 PDF Stream| Worker
+    Worker -->|Uint8Array| PdfViewer
 ```
 
-Compilation itself never crosses this diagram — the WASM engine runs inside the browser tab and never calls the API.
+---
 
 ## 3. Tech Stack
+
 | Layer | Technology | Rationale |
 |---|---|---|
-| Frontend | Next.js (App Router) + React | Single framework for both frontend and API, first-class Vercel deployment |
-| Backend | Next.js Route Handlers on Vercel | Thin CRUD + access-gate layer only; no separate service to deploy or scale |
-| LaTeX compile | SwiftLaTeX (`pdftex.js`) or equivalent WASM engine, in a Web Worker | Compiles client-side, removes the need for a TeX Live server entirely |
-| PDF render | pdf.js | Renders the compiled PDF bytes in-browser without a download round-trip |
-| Editor | Monaco Editor | Mature, VSCode-grade editing, good LaTeX syntax highlighting support |
-| Database | MongoDB (Atlas) | Chosen stack for this project; document model fits embedded commit snapshots and per-project access records naturally |
-| ODM | Mongoose | Schema shape and validation on top of MongoDB's flexibility, without hand-rolling validation in every route |
-| Auth | Clerk | Handles credential storage, session security, and the login page itself; app-level logic layers admin/access-code routing on top |
-| Object storage | Vercel Blob | Native to the deployment target, no separate storage account to wire up |
+| **Frontend Framework** | Next.js 16 (App Router) + React 19 | Single framework for SSR, client components, and API route handlers |
+| **Code Editor** | Monaco Editor (`@monaco-editor/react`) | VS Code editing engine with LaTeX syntax highlighting, bracket matching, and multi-cursor support |
+| **PDF Renderer** | PDF.js (`pdfjs-dist`) | High-DPI canvas rendering directly in-browser with zoom and page controls |
+| **Primary Compiler** | Ytotech API (`https://latex.ytotech.com/builds/sync`) | TeX Live 2026 hosted compilation endpoint supporting JSON payloads with Base64 image files |
+| **Fallback Compiler** | TeXLive.net CGI | Secondary LaTeX compilation service fallback |
+| **Database** | MongoDB Atlas & Mongoose | Flexible document model for storing embedded commit snapshots and project access records |
+| **Authentication** | Clerk (`@clerk/nextjs`) | Secure session issuance, credential management, and OAuth authentication |
+| **Asset Storage** | Vercel Blob (`@vercel/blob`) | Cloud storage for uploaded image assets and figures |
+
+---
 
 ## 4. Component Breakdown
 
-### 4.1 Editor Shell
-- **Responsibility:** Hosts the file tree, Monaco instance, and PDF preview pane; owns local edit state and triggers autosave + recompile.
-- **Interfaces:** Reads/writes files via the Project API; passes current file contents to the Compile Worker.
-- **Depends on:** Compile Worker, Project API.
+### 4.1 Editor Shell (`components/editor/MonacoEditor.tsx` & `PdfPreview.tsx`)
+- **Responsibility:** Hosts the file tree navigation, Monaco code editor, and interactive PDF preview.
+- **Interfaces:** Communicates with `/api/projects/[id]/files` for CRUD and delegates compile requests to `latex.worker.js`.
 
-### 4.2 Compile Worker
-- **Responsibility:** Runs the WASM LaTeX engine off the main thread, takes in-memory file contents, returns compiled PDF bytes or an error log.
-- **Interfaces:** `postMessage` in (file map) / out (PDF bytes or error log) between main thread and worker.
-- **Depends on:** Nothing server-side — fully self-contained once the WASM engine is loaded.
+### 4.2 Compile Web Worker (`public/latex.worker.js`)
+- **Responsibility:** Runs compilation requests off the main UI thread to keep Monaco smooth. Converts PDF Base64 response strings into `Uint8Array` binary buffers for PDF.js canvas rendering.
 
-### 4.3 Project API
-- **Responsibility:** CRUD for projects and files. Project creation is admin-only; file read/write requires an active access grant.
-- **Interfaces:** REST-style Route Handlers under `/api/projects/*`.
-- **Depends on:** MongoDB (Atlas), Auth Gate.
+### 4.3 Compilation Route (`app/api/compile/route.ts`)
+- **Responsibility:** 
+  1. Resolves `\input{}` and `\include{}` directives recursively across project files.
+  2. Embeds `.cls`, `.sty`, and `.bib` auxiliary files into document preambles.
+  3. Converts image assets into Base64 resources and submits JSON requests to Ytotech TeX Live 2026.
+  4. Parses compilation errors or log tails if compilation fails.
 
-### 4.4 Commit API
-- **Responsibility:** Creates snapshots of current file state, lists history, computes/serves diffs, handles restore.
-- **Interfaces:** `/api/projects/:id/commits`, `/api/commits/:id`.
-- **Depends on:** Project API's file model, MongoDB.
+### 4.4 Auth Gate (`lib/auth.ts`)
+- **Responsibility:** Verifies Clerk sessions on every API request and looks up user roles in MongoDB `users` and `projectAccess` collections.
+- **Access Logic:**
+  - `isAdmin: true` → Unrestricted access to all projects and admin management routes.
+  - Active `editor` / `viewer` grant → Scoped access to specified project.
+  - No active grant → Access denied; client redirected to `/access-code`.
 
-### 4.5 Auth Gate
-- **Responsibility:** Runs on every authenticated request. Confirms the Clerk session, looks up the matching MongoDB `users` document, and determines: admin → full access; non-admin with an active access grant → scoped access to those projects; non-admin with none → blocked from project data, routed to the access-code screen client-side.
-- **Interfaces:** A shared server-side helper imported by every API route; also drives the client-side redirect logic right after login.
-- **Depends on:** Clerk session, MongoDB `users` and `projectAccess` collections.
+### 4.5 Project & Commit APIs (`app/api/projects` & `app/api/commits`)
+- **Responsibility:** Manages project files, image asset uploads to Vercel Blob, and immutable commit snapshots.
 
-### 4.6 Admin Panel
-- **Responsibility:** User list, role management, per-user project access view, grant/revoke controls, per-project access-code view/regeneration.
-- **Interfaces:** `/api/admin/*` routes, admin-only pages.
-- **Depends on:** Auth Gate (admin check), MongoDB.
+### 4.6 Access Code Redemption (`app/api/access-code`)
+- **Responsibility:** Validates hashed access codes submitted by users and generates active `projectAccess` records.
 
-### 4.7 Access Code Redemption
-- **Responsibility:** Validates a submitted code against a project's stored (hashed) code, and on success creates or reactivates a `projectAccess` document for that user.
-- **Interfaces:** `/api/access-code/redeem`.
-- **Depends on:** Auth Gate, MongoDB `projects` and `projectAccess` collections.
+---
 
 ## 5. Data Model
-MongoDB collections, referenced by ObjectId rather than enforced foreign keys. Commit file snapshots are embedded directly in the commit document, since a commit's contents are always read and written together as a unit — a natural fit for the document model, and simpler than the join-table approach a relational schema would need.
 
 ```mermaid
 erDiagram
-    USERS ||--o{ PROJECTS : "creates (admin only)"
-    USERS ||--o{ PROJECTACCESS : "granted via"
-    PROJECTS ||--o{ PROJECTACCESS : has
-    PROJECTS ||--o{ FILES : contains
-    PROJECTS ||--o{ ASSETS : contains
-    PROJECTS ||--o{ COMMITS : has
+    USERS ||--o{ PROJECTS : "creates (admin)"
+    USERS ||--o{ PROJECTACCESS : "belongs to"
+    PROJECTS ||--o{ PROJECTACCESS : "has"
+    PROJECTS ||--o{ FILES : "contains"
+    PROJECTS ||--o{ ASSETS : "contains"
+    PROJECTS ||--o{ COMMITS : "contains"
 
     USERS {
         ObjectId _id
@@ -95,7 +138,6 @@ erDiagram
         string email
         boolean isAdmin
         timestamp createdAt
-        timestamp lastLoginAt
     }
     PROJECTS {
         ObjectId _id
@@ -104,7 +146,6 @@ erDiagram
         string accessCodeHash
         timestamp accessCodeUpdatedAt
         timestamp createdAt
-        timestamp updatedAt
     }
     PROJECTACCESS {
         ObjectId _id
@@ -112,9 +153,7 @@ erDiagram
         ObjectId userId
         string role
         string status
-        string grantedVia
         timestamp grantedAt
-        timestamp revokedAt
     }
     FILES {
         ObjectId _id
@@ -122,7 +161,6 @@ erDiagram
         string filename
         string content
         boolean isMainTex
-        timestamp updatedAt
     }
     ASSETS {
         ObjectId _id
@@ -130,76 +168,46 @@ erDiagram
         string filename
         string blobUrl
         int sizeBytes
-        timestamp createdAt
     }
     COMMITS {
         ObjectId _id
         ObjectId projectId
         ObjectId authorId
         string message
+        array files
         timestamp createdAt
     }
 ```
 
-`COMMITS` documents carry an embedded `files: [{ fileId, filename, content }]` array rather than a separate collection — each commit is one self-contained document.
+---
 
-`PROJECTACCESS.role` is `editor | viewer`. Redeeming a code always creates an `editor` grant; the admin can change it afterward. `status` is `active | revoked` — access is soft-revoked rather than deleted, so the admin retains a record of who's had access to what.
+## 6. API Endpoint Reference
 
-## 6. API Design
-| Method | Endpoint | Purpose | Auth required |
+| Method | Endpoint | Purpose | Authorization |
 |---|---|---|---|
-| GET | /api/projects | List projects the current user has active access to (all projects if admin) | Yes |
-| POST | /api/projects | Create a project | Yes, admin only |
-| GET | /api/projects/:id | Get project detail (files) | Yes, active access |
-| PATCH | /api/projects/:id | Rename/update project | Yes, admin only |
-| DELETE | /api/projects/:id | Delete project | Yes, admin only |
-| GET | /api/projects/:id/files | List files | Yes, active access |
-| POST | /api/projects/:id/files | Create file | Yes, editor access |
-| PATCH | /api/files/:id | Update file content (autosave) | Yes, editor access |
-| DELETE | /api/files/:id | Delete file | Yes, editor access |
-| POST | /api/projects/:id/assets | Upload asset to Vercel Blob, create Asset doc | Yes, editor access |
-| GET | /api/projects/:id/commits | List commit history | Yes, active access |
-| POST | /api/projects/:id/commits | Create commit/snapshot | Yes, editor access |
-| GET | /api/commits/:id | Get commit detail (diff-ready) | Yes, active access |
-| POST | /api/commits/:id/restore | Restore files to this commit (creates a new commit) | Yes, editor access |
-| POST | /api/access-code/redeem | Submit a code, get editor access to the matching project | Yes, any authenticated non-admin |
-| GET | /api/me/access | List the current user's active project access grants (drives login-gate routing) | Yes |
-| GET | /api/admin/users | List all registered users | Yes, admin only |
-| PATCH | /api/admin/users/:id | Change a user's role | Yes, admin only |
-| GET | /api/admin/users/:id/access | List a specific user's project access grants | Yes, admin only |
-| POST | /api/admin/projects/:id/grant | Directly grant a user access to a project | Yes, admin only |
-| POST | /api/admin/projects/:id/revoke | Revoke a user's access to a project | Yes, admin only |
-| GET | /api/admin/projects/:id/code | View a project's current access code | Yes, admin only |
-| POST | /api/admin/projects/:id/code/regenerate | Rotate a project's access code | Yes, admin only |
+| **POST** | `/api/compile` | Preprocesses LaTeX source and compiles PDF via Ytotech TeX Live 2026 | Active Project Access |
+| **GET** | `/api/projects` | List projects accessible to current user | Authenticated User |
+| **POST** | `/api/projects` | Create a new project | Admin Only |
+| **GET** | `/api/projects/:id` | Get project files & metadata | Active Access |
+| **PATCH** | `/api/projects/:id` | Update project details | Admin Only |
+| **DELETE** | `/api/projects/:id` | Delete project | Admin Only |
+| **POST** | `/api/projects/:id/files` | Create a document file | Editor Access |
+| **PATCH** | `/api/files/:id` | Autosave file content | Editor Access |
+| **DELETE** | `/api/files/:id` | Delete file | Editor Access |
+| **POST** | `/api/projects/:id/assets` | Upload image asset to Vercel Blob | Editor Access |
+| **GET** | `/api/projects/:id/commits` | List project commit history | Active Access |
+| **POST** | `/api/projects/:id/commits` | Create a snapshot commit | Editor Access |
+| **POST** | `/api/commits/:id/restore` | Restore document to a commit snapshot | Editor Access |
+| **POST** | `/api/access-code/redeem` | Redeem project access code | Authenticated User |
+| **GET** | `/api/admin/users` | List all platform users | Admin Only |
+| **PATCH** | `/api/admin/users/:id` | Update user admin status | Admin Only |
+| **POST** | `/api/admin/projects/:id/grant` | Directly grant project access | Admin Only |
+| **POST** | `/api/admin/projects/:id/revoke` | Revoke project access | Admin Only |
 
-## 7. Infrastructure & Deployment
-- Single Vercel project, deployed via Git integration (push to main → production deploy, PRs get preview deployments).
-- Environment variables: MongoDB Atlas connection string, Clerk keys, Vercel Blob token.
-- No build-time TeX install and nothing to containerize — the WASM engine ships as a static asset bundled with the frontend.
-- The admin account is seeded once (a specific Clerk `clerkId` flagged `isAdmin: true` in the `users` collection) rather than assigned through any in-app flow, since v1 assumes exactly one admin.
+---
 
-## 8. Security Considerations
-- Every API route verifies the Clerk session before touching data.
-- The Auth Gate centralizes admin/access checks in one place, so route handlers don't each reimplement the logic.
-- Access codes are hashed at rest (bcrypt or equivalent) and compared via hash on redemption — a database leak doesn't hand out live codes directly.
-- Role checks (`editor` vs `viewer`) gate mutation routes: viewers can hit GET routes but not PATCH/POST/DELETE.
-- Admin-only routes (`/api/admin/*`, project creation, project delete/rename) check `isAdmin` explicitly, independent of the general access-grant check.
-- All writes go through the API; the client never talks to MongoDB or Blob storage directly except for asset upload, which still requires a signed upload URL issued by an authorized route.
-- Filenames are sanitized/validated server-side before being persisted or used to build Blob paths.
+## 7. Security & Infrastructure
 
-## 9. Scalability & Performance
-Offloading compilation to the client keeps server load roughly flat regardless of compile volume — the Vercel backend only ever handles small CRUD payloads and access checks. MongoDB Atlas and Vercel Blob both scale automatically; given the expected load (one admin, a small number of regular users, a handful of projects), no capacity planning is needed for v1.
-
-## 10. Key Technical Decisions & Tradeoffs
-| Decision | Alternatives considered | Why this choice |
-|---|---|---|
-| Client-side WASM LaTeX compile | Server-side compile via containerized TeX Live | Keeps the entire stack on Vercel with zero compile infrastructure; tradeoff is bounded package support |
-| MongoDB with embedded commit snapshots | Relational schema (Postgres) with a join table for commit files | Matches the chosen stack, and a commit's file snapshots are naturally one document rather than a set of joined rows |
-| Single admin + per-project access codes, self-service redemption | Owner-driven search-and-invite flow (per-user, requires the invited person to already have an account and be found by search) | Matches the requirement directly: one controlling admin, pull-based access via a shared secret, no per-invite management overhead |
-| Clerk for auth mechanics, custom Mongo-backed gate for admin/access logic | Fully custom auth (hand-rolled password hashing, sessions) | Keeps credential/session security in a vetted provider's hands while leaving full control over the admin/access-code business logic |
-| Soft-revoke (`status: revoked`) instead of deleting access records | Hard delete on revoke | Keeps a record for the admin of who's had access to what, without extra tooling |
-
-## 11. Open Technical Questions
-- [ ] Final WASM engine choice — needs a quick spike comparing `pdftex.js` vs `xetex.js` vs Tectonic-wasm against a real research-paper document.
-- [ ] Whether to rate-limit `/api/access-code/redeem` against repeated invalid guesses.
-- [ ] Whether regenerating a project's access code should also prompt/notify existing users with access, or stay silent since their access isn't affected.
+- **Session Verification:** Every API handler validates the Clerk session token before executing queries.
+- **Password & Code Security:** Access codes are hashed at rest using standard security routines before storage in MongoDB.
+- **Deployment:** Single Next.js project on Vercel with automatic continuous integration from GitHub `main`.

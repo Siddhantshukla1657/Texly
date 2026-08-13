@@ -2,11 +2,11 @@
   <img src="public/logo.png" alt="Texly Logo" width="120" />
 </p>
 
-<h1 align="center">Texly — Browser-Based LaTeX Editor</h1>
+<h1 align="center">Texly — Modern Web-Based LaTeX Editor</h1>
 
 <p align="center">
-  <strong>Write, compile, and preview LaTeX documents entirely in your browser.</strong><br/>
-  Built with Next.js, Monaco Editor, MongoDB, and Clerk.
+  <strong>Write, compile, and preview full-featured LaTeX documents directly in your browser.</strong><br/>
+  Powered by Next.js 16, Monaco Editor, TeX Live 2026 compilation API, MongoDB Atlas, and Clerk Authentication.
 </p>
 
 <p align="center">
@@ -14,67 +14,164 @@
     <img src="https://img.shields.io/badge/GitHub-Texly-2D3A4A?style=flat-square&logo=github" alt="GitHub"/>
   </a>
   <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js" alt="Next.js"/>
+  <img src="https://img.shields.io/badge/TeX_Live-2026-008080?style=flat-square&logo=latex" alt="TeX Live 2026"/>
   <img src="https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb" alt="MongoDB"/>
   <img src="https://img.shields.io/badge/Clerk-Auth-6C47FF?style=flat-square&logo=clerk" alt="Clerk"/>
+  <img src="https://img.shields.io/badge/License-MIT-14B8A6?style=flat-square" alt="MIT License"/>
 </p>
 
 ---
 
-## 🌟 Key Features
+## 🌟 &nbsp;Overview
 
-* 📝 **Monaco Code Editor**: Professional LaTeX code editing powered by VS Code's editor engine, featuring syntax highlighting, auto-completion, line numbers, and auto-closing brackets.
-* ⚡ **Seamless LaTeX Compilation**: Server-proxied compilation (`/api/compile`) utilizing a LaTeX compilation engine to build PDF documents reliably without browser CORS restrictions.
-* 📄 **Interactive PDF Preview**: Dynamic canvas renderer using `pdfjs-dist` with zoom controls, multi-page layout, and compilation error log display.
-* 🔐 **Authentication & Access Control**: Secure login and sign-up powered by **Clerk**, supporting role-based authorization (Admins & Project Collaborators).
-* 🔑 **Access Code Grant System**: Share projects with team members using hashed access codes for fine-grained Editor and Viewer permissions.
-* 📜 **Version History & Commits**: Save document snapshots with custom commit messages, view commit logs, and inspect previous revisions.
-* 📁 **Multi-File & Asset Support**: Create and manage multiple `.tex` files per project and upload assets (images, figures) stored via **Vercel Blob**.
-* 🛠️ **Admin Dashboard**: Dedicated management portal (`/admin`) for platform administrators to monitor users, assign roles, and manage active project access codes.
+**Texly** is a high-performance, browser-based LaTeX editing environment designed for research papers, technical documentation, and academic writing. Built as a streamlined alternative to complex multi-tenant SaaS tools, Texly provides VS Code-grade editing, real-time PDF canvas rendering, multi-file project management, version control snapshots, and secure access code sharing.
 
 ---
 
-## 🛠️ Technology Stack
+## ⚡ &nbsp;Key Features
 
-| Category | Technology |
+| Feature | Description |
 |---|---|
-| **Framework** | Next.js 16 (App Router, Server Components & Route Handlers) |
-| **Language** | TypeScript |
-| **Frontend UI** | React 19, Tailwind CSS, Monaco Editor (`@monaco-editor/react`) |
-| **PDF Rendering** | PDF.js (`pdfjs-dist`) |
-| **Authentication** | Clerk (`@clerk/nextjs`) |
-| **Database** | MongoDB Atlas with Mongoose ORM |
-| **Asset Storage** | Vercel Blob (`@vercel/blob`) |
-| **Toast Notifications** | `react-hot-toast` |
+| 📝 **Monaco Code Editor** | Full-featured LaTeX editing powered by VS Code's Monaco engine — featuring syntax highlighting, line numbers, auto-closing brackets, and multi-cursor editing. |
+| 🚀 **High-Performance Compilation** | Fast server-proxied LaTeX compilation via `/api/compile` powered by **Ytotech TeX Live 2026** with secondary fallback to **TeXLive.net**. |
+| 🖼️ **Native Image & Asset Support** | Direct binary PNG, JPG, and PDF graphics rendering in documents using Base64 resource payloads (no placeholder tricks required). |
+| 📁 **Multi-File & Inlining Resolution** | Multi-file LaTeX project support with automatic recursive `\input{}` and `\include{}` import resolution and preamble package embedding (`.cls`, `.sty`, `.bib`). |
+| 📄 **Interactive PDF.js Canvas Preview** | High-DPI responsive PDF preview rendered on canvas via `pdfjs-dist` with page navigation, auto-fit, custom zoom levels, and instant download. |
+| 🔐 **Role-Based Access & Access Codes** | Secure Clerk authentication coupled with project-scoped access codes (`Editor` vs. `Viewer` roles) and automated admin routing. |
+| 📜 **Commit History & Snapshots** | Create, view, diff, and restore named project document snapshots without losing progress. |
+| 🛠️ **Admin Dashboard** | Dedicated `/admin` portal for managing platform users, revoking/granting access, and regenerating project security codes. |
 
 ---
 
-## 🚀 Getting Started
+## 🏗️ &nbsp;System Architecture
+
+The following diagram illustrates Texly's complete request flow, from user interactions in Monaco Editor to Next.js API processing, LaTeX compilation via TeX Live 2026, and PDF canvas rendering:
+
+```mermaid
+graph TD
+    subgraph Client["Client-Side (Browser)"]
+        UI["React 19 UI Shell"]
+        Monaco["Monaco Editor (LaTeX Syntax & State)"]
+        Worker["Web Worker (latex.worker.js)"]
+        PdfViewer["PdfPreview Component (PDF.js Canvas)"]
+    end
+
+    subgraph AuthLayer["Authentication & Security"]
+        Clerk["Clerk Auth Provider"]
+        Gate["Auth Gate Middleware / Server Helpers"]
+    end
+
+    subgraph Backend["Next.js 16 Server (Vercel)"]
+        CompileAPI["POST /api/compile"]
+        ProjectAPI["/api/projects & /api/files"]
+        CommitAPI["/api/commits"]
+        AccessAPI["/api/access-code"]
+        AdminAPI["/api/admin"]
+    end
+
+    subgraph CompilerEngine["LaTeX Compilation Pipeline"]
+        Preprocessor["LaTeX Preprocessor\n(Import Inliner & Base64 Encoder)"]
+        Ytotech["Ytotech Compile Service\n(latex.ytotech.com - TeX Live 2026)"]
+        TeXLiveFallback["TeXLive.net CGI Fallback"]
+    end
+
+    subgraph DataStorage["Persistence Layer"]
+        MongoDB[(MongoDB Atlas)]
+        VercelBlob["Vercel Blob Storage\n(Images & Binary Assets)"]
+    end
+
+    %% Client Interactions
+    UI --> Monaco
+    Monaco -->|Debounced Compile Event| Worker
+    Worker -->|JSON Payload: files, mainFile| CompileAPI
+    UI -->|Fetch/Upload Image Assets| VercelBlob
+
+    %% Auth Checks
+    UI -.Session Token.-> Clerk
+    CompileAPI --> Gate
+    ProjectAPI --> Gate
+    AdminAPI --> Gate
+    Gate --> Clerk
+
+    %% Database Operations
+    ProjectAPI --> MongoDB
+    CommitAPI --> MongoDB
+    AccessAPI --> MongoDB
+    AdminAPI --> MongoDB
+
+    %% Compilation Engine Workflow
+    CompileAPI --> Preprocessor
+    Preprocessor -->|1. Primary: JSON + Base64 Resources| Ytotech
+    Ytotech -- Error / Timeout Fallback --> TeXLiveFallback
+    Ytotech -->|201 Created: PDF ArrayBuffer| CompileAPI
+    TeXLiveFallback -->|200 OK: PDF Buffer| CompileAPI
+    CompileAPI -->|Base64 PDF + Log| Worker
+    Worker -->|Uint8Array ArrayBuffer| PdfViewer
+```
+
+---
+
+## 🔬 &nbsp;Deep Dive: Compilation & Asset Pipeline
+
+Texly's LaTeX compilation engine operates via a serverless proxy pipeline at `/api/compile`:
+
+1. **Dependency Resolution & Inlining:**
+   When a compile command is triggered, Texly parses the project file tree, locates the primary document (`main.tex` or specified `mainFile`), and recursively inlines all `\input{path}` and `\include{path}` references.
+
+2. **Preamble Filecontents Injection:**
+   Auxiliary text files (`.cls`, `.sty`, `.bib`, `.bst`) are embedded into the document preamble using LaTeX `filecontents*` blocks to ensure full package and bibliography availability.
+
+3. **Base64 Image Resource Transmission:**
+   Binary graphics (`.png`, `.jpg`, `.jpeg`, `.pdf`) stored as data URLs or fetched from Vercel Blob are converted into byte buffers and sent to **Ytotech's TeX Live 2026** API (`https://latex.ytotech.com/builds/sync`) as Base64-encoded `file` resources. The compilation server writes these binary files directly to disk before executing `pdflatex` or `xelatex`, guaranteeing native `\includegraphics{...}` execution without corruption or placeholder hacks.
+
+4. **Dual Engine Failover:**
+   If `xelatex` packages (such as `fontspec`, `xeCJK`, or `polyglossia`) are detected in the document preamble, the pipeline automatically selects XeLaTeX. If the primary engine encounters a service disruption, Texly seamlessly fails over to TeXLive.net to ensure uninterrupted editing.
+
+---
+
+## 🛠️ &nbsp;Technology Stack
+
+| Category | Technology | Purpose |
+|---|---|---|
+| **Framework** | Next.js 16 (App Router) | Server Components, Route Handlers, and client state management |
+| **Language** | TypeScript 5 | End-to-end type safety |
+| **Code Editor** | Monaco Editor (`@monaco-editor/react`) | VS Code-based browser LaTeX editing interface |
+| **PDF Engine** | PDF.js (`pdfjs-dist`) | High-DPI client-side PDF canvas rendering |
+| **LaTeX Service** | Ytotech API (TeX Live 2026) | Primary hosted compilation backend supporting Base64 resources |
+| **Fallback Service** | TeXLive.net CGI | Secondary LaTeX compilation service fallback |
+| **Authentication** | Clerk (`@clerk/nextjs`) | Session management, sign-up/sign-in flows, and security |
+| **Database** | MongoDB Atlas & Mongoose | Schemas for users, projects, files, commits, and access codes |
+| **Asset Storage** | Vercel Blob (`@vercel/blob`) | Cloud storage for uploaded document graphics and figures |
+
+---
+
+## 💻 &nbsp;Getting Started
 
 ### Prerequisites
 
 Ensure you have the following installed on your machine:
-* [Node.js](https://nodejs.org/) (v18+ recommended)
-* [npm](https://www.npmjs.com/) or [yarn](https://yarnpkg.com/)
-* A [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) database cluster
-* A [Clerk](https://clerk.com/) application project
+- **Node.js** v18.0.0 or higher
+- **npm** or **yarn**
+- A **MongoDB Atlas** database cluster
+- A **Clerk** project account
 
 ---
 
-### Installation & Local Setup
+### Local Installation
 
-1. **Clone the repository**:
+1. **Clone the repository:**
    ```bash
    git clone https://github.com/Siddhantshukla1657/Texly.git
    cd Texly
    ```
 
-2. **Install dependencies**:
+2. **Install dependencies:**
    ```bash
    npm install
    ```
 
-3. **Configure Environment Variables**:
-   Create a `.env.local` file in the root directory (or update `.env`) with your configuration:
+3. **Configure Environment Variables:**
+   Create a `.env.local` file in the project root:
 
    ```env
    # Clerk Authentication
@@ -82,80 +179,88 @@ Ensure you have the following installed on your machine:
    CLERK_SECRET_KEY=sk_test_...
    CLERK_WEBHOOK_SECRET=whsec_...
 
-   # Clerk Authentication Routes
+   # Clerk Redirect Routes
    NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
    NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
    NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL=/
    NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL=/
-   NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
-   NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
 
-   # MongoDB Connection String
+   # MongoDB Connection
    MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/texly?retryWrites=true&w=majority
 
    # Vercel Blob Storage Token
    BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
    ```
 
-4. **Run the Development Server**:
+4. **Launch Development Server:**
    ```bash
    npm run dev
    ```
-   Open [http://localhost:3000](http://localhost:3000) in your browser to start using Texly.
+
+5. Access the application at [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## 👑 Default Admin Account
+## 🔑 &nbsp;Admin Authorization
 
-By default, accounts registered with **`siddhantshukla2022@gmail.com`** are automatically assigned administrative privileges (`isAdmin: true`) upon initial login or registration and redirected to the `/admin` dashboard.
+Accounts registered with **`siddhantshukla2022@gmail.com`** are automatically assigned administrator privileges (`isAdmin: true`) on initial sign-in and granted full access to the `/admin` portal.
 
 ---
 
-## 📁 Project Architecture
+## 📁 &nbsp;Project Structure
 
 ```
 Texly/
 ├── app/
-│   ├── (auth)/             # Clerk Sign-in & Sign-up pages
 │   ├── access-code/        # Access code redemption page
-│   ├── admin/              # Admin dashboard & management UI
-│   ├── api/                # API Route Handlers
-│   │   ├── access-code/    # Code redemption endpoints
-│   │   ├── admin/          # Admin user/project control endpoints
-│   │   ├── compile/        # Server-side LaTeX compilation API
+│   ├── admin/              # Admin dashboard & user access management
+│   ├── api/
+│   │   ├── access-code/    # Code validation & redemption route
+│   │   ├── admin/          # Admin-only user & role routes
+│   │   ├── compile/        # TeX Live 2026 compilation pipeline & preprocessor
 │   │   ├── files/          # File CRUD operations
-│   │   ├── me/             # User access & role inspection
-│   │   └── projects/       # Project CRUD & listing endpoints
-│   ├── dashboard/          # User projects dashboard
-│   ├── projects/[id]/      # Core LaTeX editor page & workflow
-│   ├── globals.css         # Global styles & design system tokens
-│   ├── layout.tsx          # Root app layout & Clerk provider
-│   └── page.tsx            # Auth router & landing logic
+│   │   ├── me/             # User role & permission inspection
+│   │   └── projects/       # Project CRUD, commits, and assets
+│   ├── dashboard/          # User project dashboard
+│   ├── projects/[id]/      # Main editor layout (Monaco + PDF preview)
+│   ├── sign-in/            # Clerk sign-in page
+│   ├── sign-up/            # Clerk sign-up page
+│   ├── globals.css         # Design tokens & custom CSS
+│   ├── layout.tsx          # Root application layout & providers
+│   └── page.tsx            # Auth gate & landing router
 ├── components/
 │   └── editor/
-│       ├── MonacoEditor.tsx# Monaco LaTeX editor component
-│       └── PdfPreview.tsx  # PDF.js canvas preview component
+│       ├── MonacoEditor.tsx # Monaco LaTeX code editor component
+│       └── PdfPreview.tsx   # PDF.js canvas preview component
+├── docs/                   # Architectural & design documentation
+│   ├── architecture.md     # Technical system architecture
+│   ├── design.md           # Visual design & UI guidelines
+│   ├── feature.md          # Feature matrix & specifications
+│   ├── phases.md           # Project roadmap & milestones
+│   ├── prd.md              # Product requirements document
+│   └── todo.md             # Development task tracker
 ├── lib/
-│   ├── auth.ts             # Auth context & permission check utilities
-│   ├── db.ts               # Mongoose MongoDB connection cacher
+│   ├── auth.ts             # Server-side auth helpers & role guards
+│   ├── db.ts               # MongoDB Mongoose connection handler
 │   └── models.ts           # Mongoose schemas (User, Project, Access, Commit)
 ├── public/
-│   └── latex.worker.js     # Web Worker for document compilation routing
-└── next.config.ts          # Next.js configuration
+│   ├── logo.png            # Application logo
+│   └── latex.worker.js     # Async compilation Web Worker
+└── next.config.ts          # Next.js configuration settings
 ```
 
 ---
 
-## 🌐 Production Deployment (Vercel)
+## 🚀 &nbsp;Deployment (Vercel)
 
-1. Push your code to GitHub.
-2. Import the repository into **Vercel**.
-3. Under **Project Settings $\rightarrow$ Environment Variables**, populate all keys listed in `.env.local`.
-4. In **MongoDB Atlas $\rightarrow$ Network Access**, ensure IP `0.0.0.0/0` is whitelisted so Vercel Serverless Functions can connect to your database cluster.
-5. Deploy!
+1. Push your repository to GitHub.
+2. Import the project into **Vercel**.
+3. Configure the environment variables listed in `.env.local` under **Project Settings → Environment Variables**.
+4. Set MongoDB Atlas network access to allow connection requests from Vercel servers (`0.0.0.0/0`).
+5. Trigger build and deploy!
 
 ---
 
-## 📄 License
+## 📄 &nbsp;License
 
 This project is open-source under the [MIT License](LICENSE).

@@ -45,6 +45,16 @@ interface Asset {
   blobUrl: string;
 }
 
+const IMAGE_ASSET_EXTENSIONS = new Set(["png", "jpg", "jpeg", "svg"]);
+
+function getFileExtension(filename: string): string {
+  return filename.split(".").pop()?.toLowerCase() || "";
+}
+
+function isPreviewableImage(filename: string): boolean {
+  return IMAGE_ASSET_EXTENSIONS.has(getFileExtension(filename));
+}
+
 interface Project {
   _id: string;
   name: string;
@@ -155,6 +165,7 @@ export default function EditorPage() {
   const [files, setFiles] = useState<FileDoc[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState("");
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [compileLog, setCompileLog] = useState("");
@@ -188,6 +199,7 @@ export default function EditorPage() {
   const hasCompiledOnLoad = useRef(false);
 
   const activeFile = files.find((f) => f._id === activeFileId);
+  const activeAsset = assets.find((a) => a._id === activeAssetId);
   const fileTree = useMemo(() => buildFileTree(files, assets), [files, assets]);
 
   // Init WebWorker
@@ -227,6 +239,7 @@ export default function EditorPage() {
         const mainFile = data.files?.find((f: FileDoc) => f.isMainTex) || data.files?.[0];
         if (mainFile) {
           setActiveFileId(mainFile._id);
+          setActiveAssetId(null);
           setEditorContent(mainFile.content);
         }
         setLoading(false);
@@ -274,6 +287,27 @@ export default function EditorPage() {
     [activeFileId, assets]
   );
 
+  const compileCurrentProject = useCallback(() => {
+    const currentContent =
+      activeFileId && activeFile
+        ? editorContent
+        : files.find((f) => f.isMainTex)?.content || files[0]?.content || "";
+
+    compile(currentContent, files);
+  }, [activeFileId, activeFile, editorContent, files, compile]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        compileCurrentProject();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [compileCurrentProject]);
+
   // Auto-compile by default once project loads
   useEffect(() => {
     if (!loading && files.length > 0 && !hasCompiledOnLoad.current && workerRef.current) {
@@ -311,7 +345,15 @@ export default function EditorPage() {
 
   function switchFile(file: FileDoc) {
     setActiveFileId(file._id);
+    setActiveAssetId(null);
     setEditorContent(file.content);
+    setSaveStatus("saved");
+  }
+
+  function switchAsset(asset: Asset) {
+    setActiveAssetId(asset._id);
+    setActiveFileId(null);
+    setEditorContent("");
     setSaveStatus("saved");
   }
 
@@ -416,9 +458,10 @@ export default function EditorPage() {
       }
 
       const isTexOrCode = /\.(tex|bib|sty|cls|txt|md|cfg|bst|def|clo)$/i.test(file.name);
+      const isImageAsset = isPreviewableImage(sanitizedPath);
 
       try {
-        if (isTexOrCode) {
+        if (isTexOrCode && !isImageAsset) {
           const textContent = await file.text();
           const lower = sanitizedPath.toLowerCase();
           const isMain =
@@ -469,6 +512,7 @@ export default function EditorPage() {
         const mainUploaded = uploadedFileDocs.find((f) => f.isMainTex) || uploadedFileDocs[0];
         if (mainUploaded) {
           setActiveFileId(mainUploaded._id);
+          setActiveAssetId(null);
           setEditorContent(mainUploaded.content);
         }
         setFiles((currentFiles) => {
@@ -613,8 +657,7 @@ export default function EditorPage() {
         <button
           className="btn btn-primary btn-sm"
           onClick={() => {
-            const mainContent = activeFileId && activeFile ? editorContent : (files.find((f) => f.isMainTex)?.content || files[0]?.content || "");
-            compile(mainContent, files);
+            compileCurrentProject();
           }}
           disabled={compileStatus === "compiling"}
           style={{
@@ -740,9 +783,11 @@ export default function EditorPage() {
                 node={node}
                 depth={0}
                 activeFileId={activeFileId}
+                activeAssetId={activeAssetId}
                 expandedFolders={expandedFolders}
                 onToggleFolder={toggleFolder}
                 onSelectFile={switchFile}
+                onSelectAsset={switchAsset}
                 onDeleteFile={deleteFile}
                 onAddFileToFolder={(folderPath) => {
                   setTargetFolderPath(folderPath);
@@ -761,6 +806,7 @@ export default function EditorPage() {
                 type="file"
                 style={{ display: "none" }}
                 multiple
+                accept=".tex,.bib,.sty,.cls,.txt,.md,.cfg,.bst,.def,.clo,.png,.jpg,.jpeg,.svg"
                 onChange={(e) => processUpload(Array.from(e.target.files || []))}
               />
               <input
@@ -845,6 +891,7 @@ export default function EditorPage() {
                 compileLog={compileLog}
               />
             )}
+            {activeAsset && <AssetPreview asset={activeAsset} />}
           </div>
 
           {/* Stitched Seam Resizable Divider */}
@@ -899,6 +946,7 @@ export default function EditorPage() {
                 const main = updatedFiles.find((f) => f.isMainTex) || updatedFiles[0];
                 if (main) {
                   setActiveFileId(main._id);
+                  setActiveAssetId(null);
                   setEditorContent(main.content);
                 }
                 setShowHistory(false);
@@ -1083,14 +1131,82 @@ export default function EditorPage() {
   );
 }
 
+function AssetPreview({ asset }: { asset: Asset }) {
+  const canPreview = isPreviewableImage(asset.filename);
+
+  return (
+    <div className="flex flex-col h-full" style={{ background: "var(--ink)", color: "var(--parchment)", minHeight: 0 }}>
+      <div
+        style={{
+          height: "36px",
+          flexShrink: 0,
+          borderBottom: "1px solid rgba(246, 242, 232, 0.1)",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "0 12px",
+          fontFamily: "var(--font-mono)",
+          fontSize: "12px",
+          color: "var(--parchment-60)",
+        }}
+      >
+        <IconImage size={14} />
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.filename}</span>
+      </div>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+        }}
+        className="dark-scrollbar"
+      >
+        {canPreview ? (
+          <img
+            src={asset.blobUrl}
+            alt={asset.filename}
+            style={{
+              display: "block",
+              maxWidth: "100%",
+              maxHeight: "100%",
+              objectFit: "contain",
+              background: "#fff",
+              border: "1px solid rgba(246, 242, 232, 0.14)",
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              border: "1px solid rgba(246, 242, 232, 0.14)",
+              borderRadius: "6px",
+              padding: "18px",
+              color: "var(--parchment-60)",
+              fontSize: "13px",
+              textAlign: "center",
+            }}
+          >
+            Preview is available for PNG, JPG, JPEG, and SVG images.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Recursive Tree Node Item View ──────────────────────────────────────────────
 function TreeNodeItem({
   node,
   depth,
   activeFileId,
+  activeAssetId,
   expandedFolders,
   onToggleFolder,
   onSelectFile,
+  onSelectAsset,
   onDeleteFile,
   onAddFileToFolder,
   isEditor,
@@ -1098,9 +1214,11 @@ function TreeNodeItem({
   node: TreeNode;
   depth: number;
   activeFileId: string | null;
+  activeAssetId: string | null;
   expandedFolders: Record<string, boolean>;
   onToggleFolder: (path: string) => void;
   onSelectFile: (file: FileDoc) => void;
+  onSelectAsset: (asset: Asset) => void;
   onDeleteFile: (fileId: string) => void;
   onAddFileToFolder: (folderPath: string) => void;
   isEditor: boolean;
@@ -1165,9 +1283,11 @@ function TreeNodeItem({
                 node={child}
                 depth={depth + 1}
                 activeFileId={activeFileId}
+                activeAssetId={activeAssetId}
                 expandedFolders={expandedFolders}
                 onToggleFolder={onToggleFolder}
                 onSelectFile={onSelectFile}
+                onSelectAsset={onSelectAsset}
                 onDeleteFile={onDeleteFile}
                 onAddFileToFolder={onAddFileToFolder}
                 isEditor={isEditor}
@@ -1183,9 +1303,10 @@ function TreeNodeItem({
   const file = node.fileDoc;
   const asset = node.assetDoc;
   const isActive = file && activeFileId === file._id;
+  const isAssetActive = asset && activeAssetId === asset._id;
 
-  const ext = node.name.split(".").pop()?.toLowerCase();
-  const IconFileType = ext === "bib" ? IconBib : ext === "sty" || ext === "cls" ? IconStyle : asset ? IconImage : IconDocument;
+  const ext = getFileExtension(node.name);
+  const IconFileType = ext === "bib" ? IconBib : ext === "sty" || ext === "cls" ? IconStyle : asset && isPreviewableImage(node.name) ? IconImage : IconDocument;
 
   return (
     <div
@@ -1194,15 +1315,18 @@ function TreeNodeItem({
         alignItems: "center",
         padding: "5px 10px",
         paddingLeft: `${14 + depth * 14}px`,
-        cursor: file ? "pointer" : "default",
-        background: isActive ? "rgba(246, 242, 232, 0.08)" : "transparent",
-        borderLeft: isActive ? "2px solid var(--verdigris)" : "2px solid transparent",
-        color: isActive ? "var(--parchment)" : "var(--parchment-60)",
+        cursor: file || asset ? "pointer" : "default",
+        background: isActive || isAssetActive ? "rgba(246, 242, 232, 0.08)" : "transparent",
+        borderLeft: isActive || isAssetActive ? "2px solid var(--verdigris)" : "2px solid transparent",
+        color: isActive || isAssetActive ? "var(--parchment)" : "var(--parchment-60)",
         fontSize: "12px",
         fontFamily: "var(--font-mono)",
         gap: "6px",
       }}
-      onClick={() => file && onSelectFile(file)}
+      onClick={() => {
+        if (file) onSelectFile(file);
+        else if (asset) onSelectAsset(asset);
+      }}
     >
       <span style={{ display: "flex", alignItems: "center", color: "var(--parchment-35)" }}><IconFileType size={13} /></span>
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

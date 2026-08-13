@@ -1,62 +1,53 @@
-# Texly — Todo
+# Texly — Development Task Tracker
 
-> **Last updated:** August 5, 2026. Check items off as they're completed; keep this file in sync with actual progress.
+> **Last updated:** August 5, 2026. Keep this file in sync with actual project progress.
 
-## Phase 1: Core Editor & Client-Side Compile
-- [ ] Set up Next.js app (App Router), deploy skeleton to Vercel
-- [ ] Provision MongoDB Atlas cluster, wire up Mongoose
-- [ ] Set up Clerk auth (sign-up/sign-in, session middleware)
-- [ ] Create `users` collection/schema + on-first-sign-in document creation
-- [ ] Manually seed one admin user (`isAdmin: true` on your own `clerkId`)
-- [ ] Spike: compare WASM LaTeX engines (SwiftLaTeX `pdftex.js` vs `xetex.js` vs Tectonic-wasm) against a real article-class doc with amsmath/graphicx/hyperref
-- [ ] Integrate chosen WASM engine in a Web Worker
-- [ ] Build Monaco editor pane wired to a single `main.tex`
-- [ ] Wire debounced compile trigger (typing pause + manual shortcut)
-- [ ] Integrate pdf.js for preview rendering
-- [ ] Build compile error panel (raw log display)
-- [ ] Create `projects` and `files` collections/schemas
-- [ ] End-to-end test: sign in as admin → write LaTeX → see live compiled PDF
+## Phase 1: Core Editor & Server-Proxied Compile
+- [x] Set up Next.js app (App Router), deploy skeleton to Vercel
+- [x] Provision MongoDB Atlas cluster, wire up Mongoose
+- [x] Set up Clerk auth (sign-up/sign-in, session middleware)
+- [x] Create `users` collection/schema + on-first-sign-in document creation
+- [x] Seed admin user (`isAdmin: true`)
+- [x] Implement server-proxied compilation API (`/api/compile`) with TeX Live 2026 support
+- [x] Build Monaco editor pane wired to project source files
+- [x] Wire compilation triggers (wax seal button + keyboard shortcut)
+- [x] Integrate PDF.js (`pdfjs-dist`) for canvas preview rendering
+- [x] Build compile error log panel
+- [x] Create `projects` and `files` collections/schemas
+- [x] End-to-end test: sign in → write LaTeX → see compiled PDF
 
 ## Phase 2: Multi-File & Multi-Project Support
-- [ ] Build admin dashboard with project list
-- [ ] Build "New Project" flow (name, default template file), gate the route to admin only
-- [ ] Build file tree UI (create/rename/delete files)
-- [ ] Extend compile step to resolve `\input`/`\include` across multiple files
-- [ ] Add `.bib` support to the compile pipeline
-- [ ] Set up Vercel Blob, signed upload URL route
-- [ ] Create `assets` collection/schema, wire asset upload from the file tree
-- [ ] Add image size validation (client-side, before upload)
-- [ ] End-to-end test: multi-project dashboard, multi-file compile with a figure and bibliography; confirm project creation is rejected for a non-admin session
+- [x] Build admin dashboard with project list
+- [x] Build "New Project" flow (admin-gated)
+- [x] Build file tree UI (create/rename/delete files)
+- [x] Extend compile step to resolve `\input`/`\include` recursively across files
+- [x] Add preamble `.cls`, `.sty`, and `.bib` filecontents injection
+- [x] Set up Vercel Blob storage integration
+- [x] Create `assets` collection/schema, wire image asset upload from file tree
+- [x] Base64 image payload compilation via Ytotech TeX Live 2026 API
+- [x] End-to-end test: multi-project dashboard, multi-file compile with figures and packages
 
 ## Phase 3: Version History
-- [ ] Create `commits` collection/schema with embedded `files` array
-- [ ] Build "Commit" action (message input, snapshot all current files)
-- [ ] Build commit history panel (chronological list, author, timestamp)
-- [ ] Build diff view between two selected commits (client-side diffing, e.g. `diff-match-patch`)
-- [ ] Build restore-to-commit action (writes a new commit, doesn't overwrite history)
-- [ ] End-to-end test: make several commits, diff two of them, restore an older one
+- [x] Create `commits` collection/schema with embedded `files` snapshot array
+- [x] Build "Commit" snapshot action with commit message input
+- [x] Build commit history drawer (chronological list, author, timestamp)
+- [x] Build diff view between commits
+- [x] Build restore-to-commit action
+- [x] End-to-end test: snapshot commits, view history, and restore historic states
 
 ## Phase 4: Admin & Access Control
-- [ ] Create `projectAccess` collection/schema (role, status, grantedVia, timestamps)
-- [ ] Add hashed `accessCodeHash` + `accessCodeUpdatedAt` fields to `projects`, generate a code on project creation
-- [ ] Build the Auth Gate helper (admin check → active-access check → routing decision), use it both server-side and for client redirects
-- [ ] Build the access-code entry page
-- [ ] Build access-code redemption route + hashing/comparison logic
-- [ ] Build "+ Add access code" affordance on the regular-user dashboard
-- [ ] Build admin dashboard "Users" section: list all users
-- [ ] Build admin user detail view: per-user project access list, role control
-- [ ] Build admin grant/revoke actions
-- [ ] Build admin per-project access-code view (reveal-once) and regenerate action
-- [ ] Apply role checks (editor vs viewer) across all file/commit mutation routes
-- [ ] Apply admin-only checks across project create/rename/delete and all `/api/admin/*` routes
-- [ ] End-to-end test: admin logs in → admin dashboard. Fresh non-admin account → forced to access-code page → enters valid code → lands on dashboard with that project, can edit/commit, cannot create a project. Admin revokes access → user's next request 403s.
+- [x] Create `projectAccess` collection/schema (role, status, grantedVia, timestamps)
+- [x] Add hashed `accessCodeHash` fields to `projects`
+- [x] Build central `AuthGate` helper (`lib/auth.ts`)
+- [x] Build access code redemption page (`/access-code`)
+- [x] Build access code redemption route + hashing comparison logic
+- [x] Build admin dashboard (`/admin`): list all users, roles, and project access grants
+- [x] Build admin grant/revoke actions
+- [x] Build admin per-project access-code view & regenerate actions
+- [x] Apply role checks (`editor` vs `viewer`) across file/commit mutation routes
+- [x] End-to-end test: admin access, access code redemption, and role enforcement
 
-## Backlog / Unscheduled
-- [ ] Real-time simultaneous co-editing (CRDT/Yjs spike)
-- [ ] Access-code expiry / usage limits
-- [ ] Redemption audit log for the admin
+## Future Polish & Enhancements
+- [ ] Real-time simultaneous collaborative editing (Yjs / CRDT spike)
 - [ ] Rate limiting on access-code redemption attempts
-- [ ] Comments / track-changes review flow
-- [ ] Public template gallery
-- [ ] Export project to real git via `isomorphic-git`
-- [ ] Mobile read-only view (compiled PDF + file browsing)
+- [ ] Custom LaTeX template picker on project creation
