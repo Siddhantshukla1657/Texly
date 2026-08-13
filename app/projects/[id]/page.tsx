@@ -24,6 +24,8 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconPlay,
+  IconTrash,
+  IconMove,
 } from "@/components/icons";
 import WaxSealButton from "@/components/editor/WaxSealButton";
 import StitchedSeamDivider from "@/components/editor/StitchedSeamDivider";
@@ -186,6 +188,12 @@ export default function EditorPage() {
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
   const [editorWidthPercent, setEditorWidthPercent] = useState<number>(50);
 
+  // Move Modal State
+  const [movingItem, setMovingItem] = useState<{ id: string; type: "file" | "asset"; filename: string } | null>(null);
+  const [targetFolderSelection, setTargetFolderSelection] = useState<string>("");
+  const [customFolderPath, setCustomFolderPath] = useState<string>("");
+  const [isMovingItem, setIsMovingItem] = useState(false);
+
   // Share state
   const [shareRole, setShareRole] = useState<"editor" | "viewer">("viewer");
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
@@ -201,6 +209,22 @@ export default function EditorPage() {
   const activeFile = files.find((f) => f._id === activeFileId);
   const activeAsset = assets.find((a) => a._id === activeAssetId);
   const fileTree = useMemo(() => buildFileTree(files, assets), [files, assets]);
+
+  // Compute available unique folders in project
+  const availableFolders = useMemo(() => {
+    const folderSet = new Set<string>();
+    const extractFolders = (filename: string) => {
+      const parts = filename.split("/").filter(Boolean);
+      let path = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        path = path ? `${path}/${parts[i]}` : parts[i];
+        folderSet.add(path);
+      }
+    };
+    files.forEach((f) => extractFolders(f.filename));
+    assets.forEach((a) => extractFolders(a.filename));
+    return Array.from(folderSet).sort();
+  }, [files, assets]);
 
   // Init WebWorker
   useEffect(() => {
@@ -423,6 +447,87 @@ export default function EditorPage() {
     } else {
       const data = await res.json();
       toast.error(data.error);
+    }
+  }
+
+  async function deleteAsset(assetId: string) {
+    const targetAsset = assets.find((a) => a._id === assetId);
+    if (!confirm(`Delete asset "${targetAsset?.filename || "file"}"?`)) return;
+    const res = await fetch(`/api/assets/${assetId}`, { method: "DELETE" });
+    if (res.ok) {
+      const remaining = assets.filter((a) => a._id !== assetId);
+      setAssets(remaining);
+      if (activeAssetId === assetId) {
+        setActiveAssetId(null);
+        if (files.length > 0) switchFile(files[0]);
+      }
+      toast.success("Asset deleted");
+    } else {
+      const data = await res.json();
+      toast.error(data.error || "Failed to delete asset");
+    }
+  }
+
+  async function moveFileToFolder(fileId: string, destFolder: string) {
+    const file = files.find((f) => f._id === fileId);
+    if (!file) return;
+
+    const parts = file.filename.split("/").filter(Boolean);
+    const baseName = parts[parts.length - 1];
+    const cleanFolder = destFolder.trim().replace(/^\/+|\/+$/g, "");
+    const newPath = cleanFolder ? `${cleanFolder}/${baseName}` : baseName;
+
+    if (newPath === file.filename) {
+      toast("File is already in this location.");
+      return;
+    }
+
+    if (files.some((f) => f._id !== fileId && f.filename === newPath)) {
+      toast.error(`A file named "${newPath}" already exists.`);
+      return;
+    }
+
+    const res = await fetch(`/api/files/${fileId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: newPath }),
+    });
+
+    const data = await res.json();
+    if (res.ok && data.file) {
+      setFiles((prev) => prev.map((f) => (f._id === fileId ? data.file : f)));
+      toast.success(`Moved "${baseName}" to ${cleanFolder ? `folder "${cleanFolder}"` : "root"}`);
+    } else {
+      toast.error(data.error || "Failed to move file");
+    }
+  }
+
+  async function moveAssetToFolder(assetId: string, destFolder: string) {
+    const asset = assets.find((a) => a._id === assetId);
+    if (!asset) return;
+
+    const parts = asset.filename.split("/").filter(Boolean);
+    const baseName = parts[parts.length - 1];
+    const cleanFolder = destFolder.trim().replace(/^\/+|\/+$/g, "");
+    const newPath = cleanFolder ? `${cleanFolder}/${baseName}` : baseName;
+
+    if (newPath === asset.filename) {
+      toast("Asset is already in this location.");
+      return;
+    }
+
+    const res = await fetch(`/api/assets/${assetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: newPath }),
+    });
+
+    const data = await res.json();
+    if (res.ok && data.asset) {
+      setAssets((prev) => prev.map((a) => (a._id === assetId ? data.asset : a)));
+      toast.success(`Moved asset "${baseName}" to ${cleanFolder ? `folder "${cleanFolder}"` : "root"}`);
+    } else {
+      toast.error(data.error || "Failed to move asset");
     }
   }
 
@@ -799,6 +904,16 @@ export default function EditorPage() {
                 onSelectFile={switchFile}
                 onSelectAsset={switchAsset}
                 onDeleteFile={deleteFile}
+                onDeleteAsset={deleteAsset}
+                onMoveFile={moveFileToFolder}
+                onMoveAsset={moveAssetToFolder}
+                onOpenMoveModal={(item) => {
+                  setMovingItem(item);
+                  const parts = item.filename.split("/").filter(Boolean);
+                  const currentFolder = parts.slice(0, -1).join("/");
+                  setTargetFolderSelection(currentFolder);
+                  setCustomFolderPath("");
+                }}
                 onAddFileToFolder={(folderPath) => {
                   setTargetFolderPath(folderPath);
                   setShowNewFile(true);
@@ -891,6 +1006,65 @@ export default function EditorPage() {
             className="flex flex-col h-full"
             style={{ width: `${editorWidthPercent}%`, minWidth: 0, flexShrink: 0, background: "var(--ink)", overflow: "hidden", minHeight: 0, height: "100%" }}
           >
+            {activeFile && (
+              <div style={{ padding: "6px 12px", background: "#1A1D24", borderBottom: "1px solid rgba(246,242,232,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--parchment-60)", fontFamily: "var(--font-mono)" }}>
+                  <IconDocument size={13} />
+                  <span style={{ fontWeight: 500, color: "var(--parchment)" }}>{activeFile.filename}</span>
+                  {activeFile.isMainTex && <span className="badge badge-amber" style={{ fontSize: "9px", padding: "1px 5px" }}>Main</span>}
+                </div>
+                {isEditor && !activeFile.isMainTex && (
+                  <button
+                    onClick={() => deleteFile(activeFile._id)}
+                    title="Delete current file"
+                    style={{
+                      background: "rgba(239, 68, 68, 0.1)",
+                      border: "1px solid rgba(239, 68, 68, 0.3)",
+                      color: "#EF4444",
+                      borderRadius: "4px",
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      cursor: "pointer",
+                      fontWeight: 500,
+                    }}
+                  >
+                    <IconTrash size={12} /> Delete File
+                  </button>
+                )}
+              </div>
+            )}
+            {activeAsset && (
+              <div style={{ padding: "6px 12px", background: "#1A1D24", borderBottom: "1px solid rgba(246,242,232,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--parchment-60)", fontFamily: "var(--font-mono)" }}>
+                  <IconImage size={13} />
+                  <span style={{ fontWeight: 500, color: "var(--parchment)" }}>{activeAsset.filename}</span>
+                </div>
+                {isEditor && (
+                  <button
+                    onClick={() => deleteAsset(activeAsset._id)}
+                    title="Delete current asset"
+                    style={{
+                      background: "rgba(239, 68, 68, 0.1)",
+                      border: "1px solid rgba(239, 68, 68, 0.3)",
+                      color: "#EF4444",
+                      borderRadius: "4px",
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      cursor: "pointer",
+                      fontWeight: 500,
+                    }}
+                  >
+                    <IconTrash size={12} /> Delete Asset
+                  </button>
+                )}
+              </div>
+            )}
             {activeFile && (
               <MonacoEditor
                 key={activeFile._id}
@@ -1026,6 +1200,75 @@ export default function EditorPage() {
                 </button>
                 <button type="submit" className="btn btn-primary flex-1" disabled={!newFolderName.trim()}>
                   Create Folder
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Move File Modal ── */}
+      {movingItem && (
+        <div className="modal-overlay" onClick={() => setMovingItem(null)}>
+          <div className="modal-ink" onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", fontFamily: "var(--font-serif)" }}>
+              Move "{movingItem.filename.split("/").pop()}" to Folder
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setIsMovingItem(true);
+                const destination = customFolderPath.trim() || targetFolderSelection;
+                try {
+                  if (movingItem.type === "file") {
+                    await moveFileToFolder(movingItem.id, destination);
+                  } else {
+                    await moveAssetToFolder(movingItem.id, destination);
+                  }
+                  setMovingItem(null);
+                } finally {
+                  setIsMovingItem(false);
+                }
+              }}
+            >
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ fontSize: "12px", color: "var(--parchment-60)", display: "block", marginBottom: "6px" }}>
+                  Select Target Folder
+                </label>
+                <select
+                  className="input-ink input-mono"
+                  value={targetFolderSelection}
+                  onChange={(e) => {
+                    setTargetFolderSelection(e.target.value);
+                    setCustomFolderPath("");
+                  }}
+                  style={{ width: "100%", marginBottom: "10px" }}
+                >
+                  <option value="">/ (Root Directory)</option>
+                  {availableFolders.map((folderPath) => (
+                    <option key={folderPath} value={folderPath}>
+                      /{folderPath}
+                    </option>
+                  ))}
+                </select>
+
+                <label style={{ fontSize: "12px", color: "var(--parchment-60)", display: "block", marginBottom: "6px" }}>
+                  Or create/type new folder path:
+                </label>
+                <input
+                  className="input-ink input-mono"
+                  placeholder="e.g. chapters or sub/folder"
+                  value={customFolderPath}
+                  onChange={(e) => setCustomFolderPath(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-2 justify-between">
+                <button type="button" className="btn btn-secondary-ink flex-1" onClick={() => setMovingItem(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary flex-1" disabled={isMovingItem}>
+                  {isMovingItem ? "Moving…" : "Move File"}
                 </button>
               </div>
             </form>
@@ -1218,6 +1461,10 @@ function TreeNodeItem({
   onSelectFile,
   onSelectAsset,
   onDeleteFile,
+  onDeleteAsset,
+  onMoveFile,
+  onMoveAsset,
+  onOpenMoveModal,
   onAddFileToFolder,
   isEditor,
 }: {
@@ -1230,10 +1477,15 @@ function TreeNodeItem({
   onSelectFile: (file: FileDoc) => void;
   onSelectAsset: (asset: Asset) => void;
   onDeleteFile: (fileId: string) => void;
+  onDeleteAsset?: (assetId: string) => void;
+  onMoveFile?: (fileId: string, destFolder: string) => void;
+  onMoveAsset?: (assetId: string, destFolder: string) => void;
+  onOpenMoveModal?: (item: { id: string; type: "file" | "asset"; filename: string }) => void;
   onAddFileToFolder: (folderPath: string) => void;
   isEditor: boolean;
 }) {
   const isExpanded = expandedFolders[node.path] !== false; // expanded by default
+  const [isDragOverFolder, setIsDragOverFolder] = useState(false);
 
   if (node.isFolder) {
     return (
@@ -1245,14 +1497,45 @@ function TreeNodeItem({
             padding: "5px 10px",
             paddingLeft: `${10 + depth * 14}px`,
             cursor: "pointer",
-            color: "var(--parchment-60)",
+            color: isDragOverFolder ? "var(--wax-amber, #E08214)" : "var(--parchment-60)",
+            background: isDragOverFolder ? "rgba(224, 130, 20, 0.15)" : "transparent",
             fontSize: "12px",
             fontFamily: "var(--font-sans)",
             fontWeight: 600,
             userSelect: "none",
             gap: "6px",
+            transition: "background 0.15s, color 0.15s",
           }}
           onClick={() => onToggleFolder(node.path)}
+          onDragOver={(e) => {
+            if (!isEditor) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragOverFolder(true);
+          }}
+          onDragLeave={(e) => {
+            if (!isEditor) return;
+            e.preventDefault();
+            setIsDragOverFolder(false);
+          }}
+          onDrop={(e) => {
+            if (!isEditor) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragOverFolder(false);
+            try {
+              const raw = e.dataTransfer.getData("text/plain");
+              if (!raw) return;
+              const data = JSON.parse(raw);
+              if (data.type === "file" && onMoveFile) {
+                onMoveFile(data.id, node.path);
+              } else if (data.type === "asset" && onMoveAsset) {
+                onMoveAsset(data.id, node.path);
+              }
+            } catch (err) {
+              console.error("Drop error", err);
+            }
+          }}
         >
           <span style={{ width: "12px", color: "var(--parchment-35)", display: "flex", alignItems: "center" }}>
             {isExpanded ? <IconChevronDown size={10} strokeWidth={2.5} /> : <IconChevronRight size={10} strokeWidth={2.5} />}
@@ -1299,6 +1582,10 @@ function TreeNodeItem({
                 onSelectFile={onSelectFile}
                 onSelectAsset={onSelectAsset}
                 onDeleteFile={onDeleteFile}
+                onDeleteAsset={onDeleteAsset}
+                onMoveFile={onMoveFile}
+                onMoveAsset={onMoveAsset}
+                onOpenMoveModal={onOpenMoveModal}
                 onAddFileToFolder={onAddFileToFolder}
                 isEditor={isEditor}
               />
@@ -1320,12 +1607,21 @@ function TreeNodeItem({
 
   return (
     <div
+      draggable={isEditor && !!(file || asset)}
+      onDragStart={(e) => {
+        if (!isEditor) return;
+        if (file) {
+          e.dataTransfer.setData("text/plain", JSON.stringify({ type: "file", id: file._id }));
+        } else if (asset) {
+          e.dataTransfer.setData("text/plain", JSON.stringify({ type: "asset", id: asset._id }));
+        }
+      }}
       style={{
         display: "flex",
         alignItems: "center",
         padding: "5px 10px",
         paddingLeft: `${14 + depth * 14}px`,
-        cursor: file || asset ? "pointer" : "default",
+        cursor: file || asset ? (isEditor ? "grab" : "pointer") : "default",
         background: isActive || isAssetActive ? "rgba(246, 242, 232, 0.08)" : "transparent",
         borderLeft: isActive || isAssetActive ? "2px solid var(--verdigris)" : "2px solid transparent",
         color: isActive || isAssetActive ? "var(--parchment)" : "var(--parchment-60)",
@@ -1342,6 +1638,31 @@ function TreeNodeItem({
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {node.name}
       </span>
+      {isEditor && (file || asset) && onOpenMoveModal && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenMoveModal({
+              id: file ? file._id : asset!._id,
+              type: file ? "file" : "asset",
+              filename: file ? file.filename : asset!.filename,
+            });
+          }}
+          title="Move file to folder"
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--parchment-35)",
+            cursor: "pointer",
+            fontSize: "11px",
+            padding: "0 2px",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <IconMove size={12} />
+        </button>
+      )}
       {isEditor && file && !file.isMainTex && (
         <button
           onClick={(e) => {
@@ -1360,7 +1681,28 @@ function TreeNodeItem({
             alignItems: "center",
           }}
         >
-          <IconClose size={11} />
+          <IconTrash size={12} />
+        </button>
+      )}
+      {isEditor && asset && onDeleteAsset && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteAsset(asset._id);
+          }}
+          title="Delete asset"
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--parchment-35)",
+            cursor: "pointer",
+            fontSize: "11px",
+            padding: "0 2px",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <IconTrash size={12} />
         </button>
       )}
     </div>

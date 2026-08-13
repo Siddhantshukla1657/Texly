@@ -14,7 +14,7 @@ export default function AccessCodePage() {
 
   function handleCodeChange(val: string) {
     // Strip non-alphanumeric and auto-uppercase
-    const raw = val.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 16);
+    const raw = val.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 12);
     // Group in 4s with hyphen
     const formatted = raw.match(/.{1,4}/g)?.join("-") || raw;
     setCode(formatted);

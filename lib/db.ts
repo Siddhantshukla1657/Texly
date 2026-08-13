@@ -1,4 +1,12 @@
 import mongoose from "mongoose";
+import dns from "node:dns";
+
+// Resolve MongoDB SRV records via reliable public DNS (fixes querySrv ESERVFAIL on Windows/ISP DNS)
+try {
+  dns.setServers(["8.8.8.8", "1.1.1.1"]);
+} catch {
+  // Ignore if custom DNS cannot be set in runtime environment
+}
 
 const MONGODB_URI = process.env.MONGODB_URI!;
 

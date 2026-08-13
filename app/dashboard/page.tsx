@@ -368,9 +368,13 @@ export default function DashboardPage() {
                 </label>
                 <input
                   className="input-parchment input-mono"
-                  placeholder="CODE-XXXX-XXXX"
+                  placeholder="XXXX-XXXX-XXXX"
                   value={code}
-                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 12);
+                    const formatted = raw.match(/.{1,4}/g)?.join("-") || raw;
+                    setCode(formatted);
+                  }}
                   autoFocus
                   style={{ fontSize: "16px", textAlign: "center", letterSpacing: "0.12em" }}
                 />

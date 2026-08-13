@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { nanoid } from "nanoid";
 import { getAuthContext } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
 import { Project, File, ProjectAccess } from "@/lib/models";
+import { generateAccessCode } from "@/lib/accessCode";
 
 const DEFAULT_MAIN_TEX = `\\documentclass[12pt]{article}
 
@@ -72,8 +72,8 @@ export async function POST(request: Request) {
   const projectName = (name || "Untitled Project").trim();
 
   // Generate access code
-  const rawCode = nanoid(12);
-  const accessCodeHash = await bcrypt.hash(rawCode, 12);
+  const { formattedCode } = generateAccessCode();
+  const accessCodeHash = await bcrypt.hash(formattedCode, 12);
 
   const project = await Project.create({
     name: projectName,
@@ -99,5 +99,5 @@ export async function POST(request: Request) {
     grantedVia: "admin-manual",
   });
 
-  return NextResponse.json({ project, accessCode: rawCode }, { status: 201 });
+  return NextResponse.json({ project, accessCode: formattedCode, code: formattedCode }, { status: 201 });
 }

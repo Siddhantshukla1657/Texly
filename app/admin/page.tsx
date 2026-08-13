@@ -150,9 +150,27 @@ export default function AdminPage() {
   const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Grant project access modal state
+  const [grantingProject, setGrantingProject] = useState<Project | null>(null);
+  const [usersList, setUsersList] = useState<User[]>([]);
+  const [targetUserId, setTargetUserId] = useState("");
+  const [targetRole, setTargetRole] = useState<"editor" | "viewer">("editor");
+  const [grantingSubmit, setGrantingSubmit] = useState(false);
+
   useEffect(() => {
     fetchProjects();
+    fetchUsers();
   }, []);
+
+  async function fetchUsers() {
+    try {
+      const res = await fetch("/api/admin/users");
+      const data = await res.json();
+      setUsersList(data.users || []);
+    } catch (err) {
+      console.error("Failed to fetch users", err);
+    }
+  }
 
   async function fetchProjects() {
     try {
@@ -355,6 +373,15 @@ export default function AdminPage() {
                           </td>
                           <td>
                             <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => {
+                                  setGrantingProject(project);
+                                  if (usersList.length > 0) setTargetUserId(usersList[0]._id);
+                                }}
+                              >
+                                Grant Access
+                              </button>
                               <Link
                                 href={`/projects/${project._id}`}
                                 className="btn btn-secondary btn-sm"
@@ -509,6 +536,124 @@ export default function AdminPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Grant Access Modal for Project ── */}
+      {grantingProject && (
+        <div className="modal-overlay" onClick={() => setGrantingProject(null)}>
+          <div className="modal-parchment" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+              <div>
+                <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--text)" }}>
+                  Grant Access to "{grantingProject.name}"
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-3)", marginTop: "2px" }}>
+                  Directly grant project access to a user
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                onClick={() => setGrantingProject(null)}
+              >
+                <XIcon size={16} color="#64748B" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!targetUserId) {
+                  toast.error("Select a user");
+                  return;
+                }
+                setGrantingSubmit(true);
+                try {
+                  const res = await fetch(`/api/admin/projects/${grantingProject._id}/grant`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userId: targetUserId, role: targetRole }),
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    toast.success("Project access granted successfully!");
+                    setGrantingProject(null);
+                  } else {
+                    toast.error(data.error || "Failed to grant access");
+                  }
+                } finally {
+                  setGrantingSubmit(false);
+                }
+              }}
+            >
+              <div style={{ marginBottom: "16px" }}>
+                <label
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    display: "block",
+                    marginBottom: "7px",
+                    color: "var(--text-3)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                  }}
+                >
+                  Select User
+                </label>
+                <select
+                  className="input-parchment"
+                  value={targetUserId}
+                  onChange={(e) => setTargetUserId(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>Select User…</option>
+                  {usersList.map((u) => (
+                    <option key={u._id} value={u._id}>
+                      {u.username} ({u.email || "No email"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    display: "block",
+                    marginBottom: "7px",
+                    color: "var(--text-3)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                  }}
+                >
+                  Permission Role
+                </label>
+                <select
+                  className="input-parchment"
+                  value={targetRole}
+                  onChange={(e) => setTargetRole(e.target.value as "editor" | "viewer")}
+                >
+                  <option value="editor">Editor (Full edit & delete rights)</option>
+                  <option value="viewer">Viewer (Read only)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary flex-1"
+                  onClick={() => setGrantingProject(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary flex-1" disabled={grantingSubmit || !targetUserId}>
+                  {grantingSubmit ? "Granting…" : "Grant Access"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -686,12 +831,27 @@ function AdminUserDetail({
   >([]);
   const [loading, setLoading] = useState(true);
 
+  // Direct access granting state
+  const [allProjects, setAllProjects] = useState<{ _id: string; name: string }[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [directRole, setDirectRole] = useState<"editor" | "viewer">("editor");
+  const [isSubmittingGrant, setIsSubmittingGrant] = useState(false);
+
   useEffect(() => {
     setLoading(true);
     fetch(`/api/admin/users/${user._id}/access`)
       .then((r) => r.json())
       .then((d) => setGrants(d.grants || []))
       .finally(() => setLoading(false));
+
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.projects) {
+          setAllProjects(d.projects);
+          if (d.projects.length > 0) setSelectedProjectId(d.projects[0]._id);
+        }
+      });
   }, [user._id]);
 
   async function toggleAdmin() {
@@ -880,6 +1040,67 @@ function AdminUserDetail({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Grant Direct Project Access section */}
+      <div style={{ padding: "14px 18px", borderTop: "1px solid var(--border)", background: "var(--surface-2)" }}>
+        <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>
+          Grant Direct Project Access
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <select
+            className="input-parchment"
+            value={selectedProjectId}
+            onChange={(e) => setSelectedProjectId(e.target.value)}
+            style={{ fontSize: "12px", padding: "6px 8px" }}
+          >
+            <option value="" disabled>Select a Project…</option>
+            {allProjects.map((p) => (
+              <option key={p._id} value={p._id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <select
+              className="input-parchment"
+              value={directRole}
+              onChange={(e) => setDirectRole(e.target.value as "editor" | "viewer")}
+              style={{ fontSize: "12px", padding: "6px 8px", width: "110px" }}
+            >
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
+            <button
+              className="btn btn-primary btn-sm"
+              style={{ flex: 1, justifyContent: "center" }}
+              disabled={isSubmittingGrant || !selectedProjectId}
+              onClick={async () => {
+                if (!selectedProjectId) return;
+                setIsSubmittingGrant(true);
+                try {
+                  const res = await fetch(`/api/admin/projects/${selectedProjectId}/grant`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userId: user._id, role: directRole }),
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    toast.success("Access granted to user!");
+                    const updated = await fetch(`/api/admin/users/${user._id}/access`).then((r) => r.json());
+                    setGrants(updated.grants || []);
+                  } else {
+                    toast.error(data.error || "Failed to grant access");
+                  }
+                } finally {
+                  setIsSubmittingGrant(false);
+                }
+              }}
+            >
+              {isSubmittingGrant ? "Granting…" : "Grant Access"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
