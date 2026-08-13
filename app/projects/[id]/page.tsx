@@ -601,123 +601,133 @@ export default function EditorPage() {
           borderBottom: "1px solid rgba(246, 242, 232, 0.12)",
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           padding: "0 16px",
-          gap: "16px",
+          width: "100%",
         }}
       >
-        {/* Brand */}
-        <Link
-          href="/dashboard"
-          style={{
-            fontSize: "16px",
-            fontFamily: "var(--font-serif)",
-            fontWeight: 600,
-            color: "var(--parchment)",
-            textDecoration: "none",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-          }}
-        >
-          Texly
-        </Link>
-
-        <span style={{ color: "var(--parchment-35)" }}>/</span>
-
-        {/* Project Title */}
-        <span
-          style={{
-            color: "var(--parchment)",
-            fontSize: "13px",
-            fontWeight: 500,
-            maxWidth: "240px",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {project?.name}
-        </span>
-
-        {/* Access Role Badge */}
-        <span className={`badge ${isEditor ? "badge-parchment" : "badge-amber"}`} style={{ fontSize: "10px" }}>
-          {isEditor ? "Editor" : "Viewer (Read Only)"}
-        </span>
-
-        <div style={{ flex: 1 }} />
-
-        {/* Save indicator */}
-        <span style={{ fontSize: "11px", color: "var(--parchment-60)", fontFamily: "var(--font-mono)" }}>
-          {saveStatus === "saving" ? "Saving…" : saveStatus === "unsaved" ? "Unsaved" : "Saved"}
-        </span>
-
-        <div style={{ width: "1px", height: "16px", background: "rgba(246,242,232,0.15)" }} />
-
-        {/* Action Controls */}
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => {
-            compileCurrentProject();
-          }}
-          disabled={compileStatus === "compiling"}
-          style={{
-            background: compileStatus === "compiling" ? "#D97706" : "var(--wax-amber, #E08214)",
-            color: "#FFFFFF",
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            padding: "5px 12px",
-            borderRadius: "5px",
-            border: "none",
-            cursor: compileStatus === "compiling" ? "not-allowed" : "pointer",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-          }}
-          title="Compile LaTeX project to PDF"
-        >
-          {compileStatus === "compiling" ? (
-            <>
-              <span className="spinner" style={{ width: "12px", height: "12px", borderWidth: "2px" }} />
-              Compiling…
-            </>
-          ) : (
-            <>
-              <IconPlay size={12} />
-              Compile
-            </>
-          )}
-        </button>
-
-        {isEditor && (
-          <button
-            className="btn btn-secondary-ink btn-sm"
-            onClick={() => setShowCommit(true)}
+        {/* Left Side: Brand, Project Title, Role Badge, and Save Status */}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
+          <Link
+            href="/dashboard"
+            style={{
+              fontSize: "16px",
+              fontFamily: "var(--font-serif)",
+              fontWeight: 600,
+              color: "var(--parchment)",
+              textDecoration: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
           >
-            Commit
+            Texly
+          </Link>
+
+          <span style={{ color: "var(--parchment-35)" }}>/</span>
+
+          {/* Project Title */}
+          <span
+            style={{
+              color: "var(--parchment)",
+              fontSize: "13px",
+              fontWeight: 500,
+              maxWidth: "240px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {project?.name}
+          </span>
+
+          {/* Access Role Badge */}
+          <span className={`badge ${isEditor ? "badge-parchment" : "badge-amber"}`} style={{ fontSize: "10px" }}>
+            {isEditor ? "Editor" : "Viewer (Read Only)"}
+          </span>
+
+          <div style={{ width: "1px", height: "14px", background: "rgba(246,242,232,0.15)" }} />
+
+          {/* Save indicator */}
+          <span style={{ fontSize: "11px", color: "var(--parchment-60)", fontFamily: "var(--font-mono)" }}>
+            {saveStatus === "saving" ? "Saving…" : saveStatus === "unsaved" ? "Unsaved" : "Saved"}
+          </span>
+        </div>
+
+        {/* Right Side: Action Controls & User Button */}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginLeft: "auto", flexShrink: 0 }}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              compileCurrentProject();
+            }}
+            disabled={compileStatus === "compiling"}
+            style={{
+              background: compileStatus === "compiling" ? "#D97706" : "var(--wax-amber, #E08214)",
+              color: "#FFFFFF",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "5px 12px",
+              borderRadius: "5px",
+              border: "none",
+              cursor: compileStatus === "compiling" ? "not-allowed" : "pointer",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+              flexShrink: 0,
+            }}
+            title="Compile LaTeX project to PDF"
+          >
+            {compileStatus === "compiling" ? (
+              <>
+                <span className="spinner" style={{ width: "12px", height: "12px", borderWidth: "2px" }} />
+                Compiling…
+              </>
+            ) : (
+              <>
+                <IconPlay size={12} />
+                Compile
+              </>
+            )}
           </button>
-        )}
 
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => {
-            setShowShare(true);
-            setGeneratedCode(null);
-          }}
-        >
-          <IconKey size={14} />
-          Share
-        </button>
+          {isEditor && (
+            <button
+              className="btn btn-secondary-ink btn-sm"
+              onClick={() => setShowCommit(true)}
+              style={{ flexShrink: 0 }}
+            >
+              Commit
+            </button>
+          )}
 
-        <button
-          className="btn btn-ghost-ink btn-icon"
-          onClick={() => setShowHistory((s) => !s)}
-          title="Version History"
-          style={{ color: showHistory ? "var(--wax-amber)" : undefined }}
-        >
-          <IconHistory size={16} />
-        </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setShowShare(true);
+              setGeneratedCode(null);
+            }}
+            style={{ flexShrink: 0 }}
+          >
+            <IconKey size={14} />
+            Share
+          </button>
 
-        <UserButton />
+          <button
+            className="btn btn-ghost-ink btn-icon"
+            onClick={() => setShowHistory((s) => !s)}
+            title="Version History"
+            style={{ color: showHistory ? "var(--wax-amber)" : undefined, flexShrink: 0 }}
+          >
+            <IconHistory size={16} />
+          </button>
+
+          <div style={{ width: "1px", height: "16px", background: "rgba(246,242,232,0.15)", flexShrink: 0 }} />
+
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+            <UserButton />
+          </div>
+        </div>
       </div>
 
       {/* ── Main Workspace split ── */}

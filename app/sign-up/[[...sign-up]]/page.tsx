@@ -1,58 +1,5 @@
 import { SignUp } from "@clerk/nextjs";
 
-const clerkTheme = {
-  elements: {
-    rootBox: { width: "100%" },
-    card: {
-      background: "transparent",
-      border: "none",
-      boxShadow: "none",
-      padding: "0",
-    },
-    headerTitle:    { display: "none" },
-    headerSubtitle: { display: "none" },
-    formFieldLabel: {
-      color: "#334155",
-      fontSize: "12px",
-      fontWeight: "600",
-      textTransform: "uppercase" as const,
-      letterSpacing: "0.05em",
-    },
-    formFieldInput: {
-      background: "#FFFFFF",
-      border: "1.5px solid #E1E8F0",
-      borderRadius: "8px",
-      color: "#0F172A",
-      fontSize: "14px",
-      padding: "10px 13px",
-      boxShadow: "0 1px 2px rgba(15,23,42,0.05)",
-    },
-    formButtonPrimary: {
-      background: "linear-gradient(135deg, #2563EB, #4F46E5)",
-      borderRadius: "8px",
-      fontSize: "14px",
-      fontWeight: "600",
-      letterSpacing: "0.01em",
-      boxShadow: "0 4px 14px rgba(59,123,246,0.40)",
-      border: "none",
-      padding: "10px",
-    },
-    footerActionLink: { color: "#2563EB", fontWeight: "600" },
-    dividerLine:      { background: "#E1E8F0" },
-    dividerText:      { color: "#94A3B8", fontSize: "12px" },
-    socialButtonsBlockButton: {
-      background: "#F7F9FC",
-      border: "1.5px solid #E1E8F0",
-      borderRadius: "8px",
-      color: "#1E293B",
-      boxShadow: "0 1px 2px rgba(15,23,42,0.05)",
-    },
-    socialButtonsBlockButtonText: { color: "#1E293B", fontWeight: "500" },
-    footer: { background: "transparent" },
-    identityPreviewText: { color: "#334155" },
-  },
-};
-
 export default function SignUpPage() {
   return (
     <div className="auth-shell">
@@ -129,12 +76,10 @@ export default function SignUpPage() {
       {/* ── Right form panel ── */}
       <div className="auth-right">
         <div className="auth-form-wrap">
-          <div className="auth-form-title">Create your account</div>
-          <div className="auth-form-sub">Get started with Texly — it&apos;s free</div>
-
-          <SignUp appearance={clerkTheme} />
+          <SignUp />
         </div>
       </div>
     </div>
   );
 }
+
