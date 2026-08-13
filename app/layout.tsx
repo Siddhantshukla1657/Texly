@@ -4,8 +4,8 @@ import { Toaster } from "react-hot-toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Texly — Browser-Based LaTeX Editor",
-  description: "Write and compile LaTeX documents in your browser. No server-side TeX install required.",
+  title: "Texly — Ink & Parchment LaTeX Editor",
+  description: "Write and compile LaTeX documents in your browser with the Ink & Parchment workspace.",
 };
 
 export default function RootLayout({
@@ -14,12 +14,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500;600&display=swap"
           rel="stylesheet"
         />
       </head>
@@ -30,11 +30,13 @@ export default function RootLayout({
             position="bottom-right"
             toastOptions={{
               style: {
-                background: "#1e293b",
-                color: "#f8fafc",
-                border: "1px solid rgba(255,255,255,0.1)",
+                background: "#191D24",
+                color: "#F6F2E8",
+                border: "1px solid rgba(246,242,232,0.15)",
                 borderRadius: "8px",
-                fontSize: "14px",
+                fontSize: "13px",
+                fontFamily: 'var(--font-sans)',
+                boxShadow: "0 4px 20px rgba(25,29,36,0.2)",
               },
             }}
           />

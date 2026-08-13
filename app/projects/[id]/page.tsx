@@ -5,6 +5,16 @@ import dynamic from "next/dynamic";
 import toast from "react-hot-toast";
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import {
+  IconDocument,
+  IconFolder,
+  IconHistory,
+  IconKey,
+  IconEdit,
+  IconLock,
+} from "@/components/icons";
+import WaxSealButton from "@/components/editor/WaxSealButton";
+import StitchedSeamDivider from "@/components/editor/StitchedSeamDivider";
 
 const MonacoEditor = dynamic(() => import("@/components/editor/MonacoEditor"), { ssr: false });
 const PdfPreview = dynamic(() => import("@/components/editor/PdfPreview"), { ssr: false });
@@ -44,18 +54,26 @@ export default function EditorPage() {
   const [compileStatus, setCompileStatus] = useState<CompileStatus>("idle");
   const [isEditor, setIsEditor] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [showNewFile, setShowNewFile] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [showCommit, setShowCommit] = useState(false);
   const [commitMsg, setCommitMsg] = useState("");
   const [committing, setCommitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
+  const [editorWidthPercent, setEditorWidthPercent] = useState<number>(50);
+
+  // Share state
+  const [shareRole, setShareRole] = useState<"editor" | "viewer">("viewer");
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [generatingCode, setGeneratingCode] = useState(false);
 
   const workerRef = useRef<Worker | null>(null);
   const compileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   const activeFile = files.find((f) => f._id === activeFileId);
 
   // Init worker
@@ -80,7 +98,7 @@ export default function EditorPage() {
     fetch(`/api/projects/${id}`)
       .then((r) => {
         if (r.status === 403) {
-          toast.error("You no longer have access to this project");
+          toast.error("Access removed. Redirecting to dashboard.");
           router.push("/dashboard");
           return null;
         }
@@ -103,64 +121,52 @@ export default function EditorPage() {
 
   // Check role
   useEffect(() => {
-    fetch("/api/me/access").then((r) => r.json()).then((data) => {
-      const grant = data.grants?.find(
-        (g: { projectId: { _id: string }; role: string }) => g.projectId._id === id
-      );
-      if (grant) setIsEditor(grant.role === "editor");
-      else if (data.isAdmin) setIsEditor(true);
-    });
+    fetch("/api/me/access")
+      .then((r) => r.json())
+      .then((data) => {
+        const grant = data.grants?.find(
+          (g: { projectId: { _id: string }; role: string }) => g.projectId._id === id
+        );
+        if (grant) setIsEditor(grant.role === "editor");
+        else if (data.isAdmin) setIsEditor(true);
+      });
   }, [id]);
 
-  // Debounced compile (1.5s after typing stops)
-  const triggerCompile = useCallback(
-    (content: string, allFiles?: FileDoc[]) => {
-      if (compileTimer.current) clearTimeout(compileTimer.current);
-      compileTimer.current = setTimeout(() => {
-        compile(content, allFiles || files);
-      }, 1500);
+  // Compile
+  const compile = useCallback(
+    (currentContent: string, allFiles: FileDoc[]) => {
+      if (!workerRef.current) return;
+      setCompileStatus("compiling");
+
+      const fileMap: Record<string, string> = {};
+      for (const f of allFiles) {
+        fileMap[f.filename] = f._id === activeFileId ? currentContent : f.content;
+      }
+      for (const a of assets) {
+        fileMap[a.filename] = a.blobUrl;
+      }
+
+      const mainFile = allFiles.find((f) => f.isMainTex)?.filename || allFiles[0]?.filename;
+      if (!mainFile) return;
+
+      workerRef.current.postMessage({ type: "compile", files: fileMap, mainFile });
     },
-    [files]
+    [activeFileId, assets]
   );
-
-  function compile(currentContent: string, allFiles: FileDoc[]) {
-    if (!workerRef.current) return;
-    setCompileStatus("compiling");
-
-    const fileMap: Record<string, string> = {};
-    for (const f of allFiles) {
-      fileMap[f.filename] = f._id === activeFileId ? currentContent : f.content;
-    }
-
-    // Include assets as refs (the engine needs them by name)
-    for (const a of assets) {
-      fileMap[a.filename] = a.blobUrl; // actual content fetched by engine
-    }
-
-    const mainFile = allFiles.find((f) => f.isMainTex)?.filename || allFiles[0]?.filename;
-    if (!mainFile) return;
-
-    workerRef.current.postMessage({ type: "compile", files: fileMap, mainFile });
-  }
 
   function handleEditorChange(value: string) {
     setEditorContent(value);
 
-    // Debounced autosave
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveStatus("unsaved");
     saveTimer.current = setTimeout(() => {
       saveFile(activeFileId!, value);
     }, 800);
-
-    // Debounced compile
-    triggerCompile(value);
   }
 
   async function saveFile(fileId: string, content: string) {
     if (!isEditor) return;
     setSaveStatus("saving");
-    setIsSaving(true);
     try {
       await fetch(`/api/files/${fileId}`, {
         method: "PATCH",
@@ -168,12 +174,9 @@ export default function EditorPage() {
         body: JSON.stringify({ content }),
       });
       setSaveStatus("saved");
-      // Update local file state
       setFiles((prev) => prev.map((f) => (f._id === fileId ? { ...f, content } : f)));
     } catch {
       setSaveStatus("unsaved");
-    } finally {
-      setIsSaving(false);
     }
   }
 
@@ -221,9 +224,7 @@ export default function EditorPage() {
     if (uploadedFiles.length === 0) return;
 
     let successCount = 0;
-
     for (const file of uploadedFiles) {
-      // Retain relative path if folder upload (webkitRelativePath)
       const relPath = file.webkitRelativePath || file.name;
       const sanitizedName = relPath.replace(/[^a-zA-Z0-9._\-/]/g, "_");
 
@@ -232,7 +233,6 @@ export default function EditorPage() {
         continue;
       }
 
-      // Check if image or asset
       const isTexOrCode = /\.(tex|bib|sty|cls|txt|md)$/i.test(file.name);
 
       if (isTexOrCode) {
@@ -244,7 +244,7 @@ export default function EditorPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          setFiles((prev) => [...prev.filter(f => f.filename !== sanitizedName), data.file]);
+          setFiles((prev) => [...prev.filter((f) => f.filename !== sanitizedName), data.file]);
           successCount++;
         }
       } else {
@@ -253,14 +253,14 @@ export default function EditorPage() {
         const res = await fetch(`/api/projects/${id}/assets`, { method: "POST", body: formData });
         const data = await res.json();
         if (res.ok) {
-          setAssets((prev) => [...prev.filter(a => a.filename !== sanitizedName), data.asset]);
+          setAssets((prev) => [...prev.filter((a) => a.filename !== sanitizedName), data.asset]);
           successCount++;
         }
       }
     }
 
     if (successCount > 0) {
-      toast.success(`Successfully uploaded ${successCount} file(s)`);
+      toast.success(`Uploaded ${successCount} file(s)`);
     }
   }
 
@@ -286,315 +286,296 @@ export default function EditorPage() {
     }
   }
 
-  // Manual compile shortcut Ctrl/Cmd+Enter
+  async function handleGenerateCode() {
+    setGeneratingCode(true);
+    try {
+      const res = await fetch(`/api/projects/${id}/access-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: shareRole }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGeneratedCode(data.code);
+        toast.success("Access code generated");
+      } else {
+        toast.error(data.error);
+      }
+    } finally {
+      setGeneratingCode(false);
+    }
+  }
+
+  // Ctrl+Enter compile shortcut
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        if (compileTimer.current) clearTimeout(compileTimer.current);
         compile(editorContent, files);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editorContent, files]);
+  }, [compile, editorContent, files]);
 
   if (loading) {
     return (
       <div
-        className="flex items-center justify-center"
-        style={{ height: "100vh", background: "var(--bg-editor)" }}
+        className="flex items-center justify-center h-full w-full"
+        style={{ height: "100vh", background: "var(--ink)" }}
       >
-        <div className="spinner" />
+        <div className="spinner spinner-ink" />
       </div>
     );
   }
 
-  const statusDotClass =
-    compileStatus === "success"
-      ? "dot-green"
-      : compileStatus === "error"
-      ? "dot-red"
-      : compileStatus === "compiling"
-      ? "dot-yellow"
-      : "dot-muted";
-
   return (
-    <div className="editor-layout">
-      {/* File Tree */}
-      <div className="file-tree">
-        {/* Header */}
-        <div
+    <div className="flex flex-col h-full w-full" style={{ height: "100vh", overflow: "hidden", background: "var(--ink)" }}>
+      {/* Top Navbar Header (Ink Surface) */}
+      <div
+        style={{
+          height: "46px",
+          background: "var(--ink)",
+          borderBottom: "1px solid rgba(246, 242, 232, 0.12)",
+          display: "flex",
+          alignItems: "center",
+          padding: "0 16px",
+          gap: "16px",
+        }}
+      >
+        {/* Brand */}
+        <Link
+          href="/dashboard"
           style={{
-            padding: "10px 12px",
-            borderBottom: "1px solid var(--border)",
+            fontSize: "16px",
+            fontFamily: "var(--font-serif)",
+            fontWeight: 600,
+            color: "var(--parchment)",
+            textDecoration: "none",
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            gap: "8px",
+            gap: "6px",
           }}
         >
-          <Link
-            href="/"
-            style={{
-              fontSize: "14px",
-              fontWeight: 700,
-              color: "var(--text-primary)",
-              letterSpacing: "-0.3px",
-              textDecoration: "none",
-            }}
-          >
-            Tex<span style={{ color: "var(--primary)" }}>ly</span>
-          </Link>
-          <UserButton />
-        </div>
+          Texly
+        </Link>
 
-        {/* Project name */}
-        <div
+        <span style={{ color: "var(--parchment-35)" }}>/</span>
+
+        {/* Project Title */}
+        <span
           style={{
-            padding: "8px 12px",
-            fontSize: "12px",
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            borderBottom: "1px solid var(--border)",
+            color: "var(--parchment)",
+            fontSize: "13px",
+            fontWeight: 500,
+            maxWidth: "240px",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
           }}
-          title={project?.name}
         >
           {project?.name}
-        </div>
+        </span>
 
-        {/* Files header */}
-        <div
-          style={{
-            padding: "6px 12px 4px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
+        {/* Access Role Badge */}
+        <span className={`badge ${isEditor ? "badge-parchment" : "badge-amber"}`} style={{ fontSize: "10px" }}>
+          {isEditor ? "Editor" : "Viewer (Read Only)"}
+        </span>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Save indicator */}
+        <span style={{ fontSize: "11px", color: "var(--parchment-60)", fontFamily: "var(--font-mono)" }}>
+          {saveStatus === "saving" ? "Saving…" : saveStatus === "unsaved" ? "Unsaved" : "Saved"}
+        </span>
+
+        <div style={{ width: "1px", height: "16px", background: "rgba(246,242,232,0.15)" }} />
+
+        {/* Action Controls */}
+        {isEditor && (
+          <button
+            className="btn btn-secondary-ink btn-sm"
+            onClick={() => setShowCommit(true)}
+          >
+            Commit
+          </button>
+        )}
+
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => {
+            setShowShare(true);
+            setGeneratedCode(null);
           }}
         >
-          <span
-            style={{
-              fontSize: "10px",
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "var(--text-muted)",
-            }}
-          >
-            Files
-          </span>
-          {isEditor && (
-            <button
-              className="btn btn-ghost btn-icon"
-              onClick={() => setShowNewFile(true)}
-              title="New file"
-              style={{ fontSize: "14px", padding: "2px 4px" }}
-            >
-              +
-            </button>
-          )}
-        </div>
+          <IconKey size={14} />
+          Share
+        </button>
 
-        {/* File list */}
-        <div style={{ overflowY: "auto", flex: 1 }}>
-          {files.map((file) => (
-            <div
-              key={file._id}
-              style={{ position: "relative", display: "flex", alignItems: "center" }}
-            >
-              <button
-                className={`file-item${activeFileId === file._id ? " active" : ""}`}
-                style={{ flex: 1 }}
-                onClick={() => switchFile(file)}
-              >
-                <span style={{ fontSize: "12px" }}>{file.isMainTex ? "📄" : "📝"}</span>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {file.filename}
-                </span>
-              </button>
-              {isEditor && !file.isMainTex && (
-                <button
-                  style={{
-                    position: "absolute",
-                    right: "4px",
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    fontSize: "12px",
-                    padding: "2px 4px",
-                    opacity: 0,
-                    transition: "opacity var(--transition)",
-                  }}
-                  className="file-delete-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteFile(file._id);
-                  }}
-                  title="Delete file"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          ))}
+        <button
+          className="btn btn-ghost-ink btn-icon"
+          onClick={() => setShowHistory((s) => !s)}
+          title="Version History"
+          style={{ color: showHistory ? "var(--wax-amber)" : undefined }}
+        >
+          <IconHistory size={16} />
+        </button>
 
-          {/* Assets */}
-          {assets.length > 0 && (
-            <>
-              <div
-                style={{
-                  padding: "6px 12px 4px",
-                  fontSize: "10px",
-                  fontWeight: 600,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "var(--text-muted)",
-                  marginTop: "8px",
-                }}
-              >
-                Assets
-              </div>
-              {assets.map((asset) => (
-                <div
-                  key={asset._id}
-                  style={{
-                    padding: "4px 12px",
-                    fontSize: "12px",
-                    color: "var(--text-muted)",
-                    fontFamily: "var(--font-mono)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={asset.blobUrl}
-                >
-                  🖼 {asset.filename}
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-
-        {/* Upload options */}
-        {isEditor && (
-          <div style={{ padding: "8px 12px", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "6px" }}>
-            <label
-              style={{
-                display: "block",
-                padding: "6px 10px",
-                borderRadius: "6px",
-                border: "1px dashed var(--border)",
-                textAlign: "center",
-                fontSize: "11px",
-                color: "var(--text-secondary)",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--primary)")}
-              onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-            >
-              📁 Upload Folder
-              <input
-                type="file"
-                style={{ display: "none" }}
-                // @ts-expect-error webkitdirectory is standard in HTML5 browsers but missing in TS types
-                webkitdirectory="true"
-                directory=""
-                multiple
-                onChange={handleFileUpload}
-              />
-            </label>
-            <label
-              style={{
-                display: "block",
-                padding: "6px 10px",
-                borderRadius: "6px",
-                border: "1px dashed var(--border)",
-                textAlign: "center",
-                fontSize: "11px",
-                color: "var(--text-secondary)",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--primary)")}
-              onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-            >
-              📄 Upload Files
-              <input
-                type="file"
-                style={{ display: "none" }}
-                multiple
-                onChange={handleFileUpload}
-              />
-            </label>
-          </div>
-        )}
+        <UserButton />
       </div>
 
-      {/* Editor Main */}
-      <div className="editor-main">
-        {/* Toolbar */}
-        <div className="editor-toolbar">
-          {/* Compile status */}
-          <div className={`dot ${statusDotClass}`} />
-          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-            {compileStatus === "compiling"
-              ? "Compiling…"
-              : compileStatus === "success"
-              ? "Compiled"
-              : compileStatus === "error"
-              ? "Error"
-              : "Ready"}
-          </span>
-
-          <div style={{ flex: 1 }} />
-
-          {/* Save status */}
-          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-            {saveStatus === "saving" ? "Saving…" : saveStatus === "unsaved" ? "Unsaved" : "Saved"}
-          </span>
-
+      {/* Main Workspace split */}
+      <div className="flex flex-1 overflow-hidden" ref={containerRef}>
+        {/* Left: File Tree Sidebar (Ink Surface) */}
+        <div
+          style={{
+            width: "220px",
+            background: "#15181E",
+            borderRight: "1px solid rgba(246, 242, 232, 0.1)",
+            display: "flex",
+            flexDirection: "column",
+            flexShrink: 0,
+          }}
+        >
+          {/* File Tree Header */}
           <div
-            style={{ width: "1px", height: "20px", background: "var(--border)" }}
-          />
-
-          {/* Compile button */}
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => compile(editorContent, files)}
-            title="Compile (Ctrl+Enter)"
+            style={{
+              padding: "10px 12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderBottom: "1px solid rgba(246, 242, 232, 0.08)",
+            }}
           >
-            ▶ Compile
-          </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--parchment-60)", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <IconFolder size={14} />
+              Files
+            </div>
+            {isEditor && (
+              <button
+                className="btn btn-ghost-ink btn-icon"
+                onClick={() => setShowNewFile(true)}
+                title="New file"
+                style={{ padding: "2px 4px" }}
+              >
+                +
+              </button>
+            )}
+          </div>
 
-          {/* Commit button */}
+          {/* File list */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }} className="dark-scrollbar">
+            {files.map((file) => {
+              const isActive = activeFileId === file._id;
+              return (
+                <div
+                  key={file._id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    background: isActive ? "rgba(246, 242, 232, 0.08)" : "transparent",
+                    borderLeft: isActive ? "2px solid var(--verdigris)" : "2px solid transparent",
+                    color: isActive ? "var(--parchment)" : "var(--parchment-60)",
+                    fontSize: "12px",
+                    fontFamily: "var(--font-mono)",
+                    gap: "8px",
+                  }}
+                  onClick={() => switchFile(file)}
+                >
+                  <IconDocument size={14} style={{ color: isActive ? "var(--verdigris)" : "inherit" }} />
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {file.filename}
+                  </span>
+                  {isEditor && !file.isMainTex && (
+                    <button
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--parchment-35)",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        padding: "2px",
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteFile(file._id);
+                      }}
+                      title="Delete file"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Assets */}
+            {assets.length > 0 && (
+              <>
+                <div
+                  style={{
+                    padding: "10px 12px 4px",
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "var(--parchment-35)",
+                  }}
+                >
+                  Assets
+                </div>
+                {assets.map((asset) => (
+                  <div
+                    key={asset._id}
+                    style={{
+                      padding: "4px 12px",
+                      fontSize: "11px",
+                      color: "var(--parchment-60)",
+                      fontFamily: "var(--font-mono)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={asset.blobUrl}
+                  >
+                    🖼 {asset.filename}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+
+          {/* Upload control */}
           {isEditor && (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => setShowCommit(true)}
-            >
-              Commit
-            </button>
+            <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(246, 242, 232, 0.08)", display: "flex", flexDirection: "column", gap: "4px" }}>
+              <label
+                style={{
+                  display: "block",
+                  padding: "5px 8px",
+                  borderRadius: "4px",
+                  border: "1px dashed rgba(246, 242, 232, 0.2)",
+                  textAlign: "center",
+                  fontSize: "11px",
+                  color: "var(--parchment-60)",
+                  cursor: "pointer",
+                }}
+              >
+                Upload File / Assets
+                <input type="file" style={{ display: "none" }} multiple onChange={handleFileUpload} />
+              </label>
+            </div>
           )}
-
-          {/* History toggle */}
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setShowHistory((s) => !s)}
-            style={{ color: showHistory ? "var(--primary)" : undefined }}
-          >
-            History
-          </button>
         </div>
 
-        {/* Panes */}
-        <div className="editor-panes">
-          {/* Monaco */}
-          <div className="editor-pane">
+        {/* Center/Right Workspace Panes */}
+        <div className="flex flex-1 overflow-hidden" style={{ position: "relative" }}>
+          {/* Monaco Editor Pane (Ink Surface) */}
+          <div
+            className="flex flex-col h-full"
+            style={{ width: `${editorWidthPercent}%`, background: "var(--ink)", overflow: "hidden" }}
+          >
             {activeFile && (
               <MonacoEditor
                 value={editorContent}
@@ -606,17 +587,58 @@ export default function EditorPage() {
             )}
           </div>
 
-          {/* PDF Preview */}
-          <div className="preview-pane">
+          {/* Stitched Seam Resizable Divider with Anchored Wax Seal */}
+          <StitchedSeamDivider
+            leftWidth={editorWidthPercent}
+            onResize={(deltaOrPercent) => {
+              if (typeof deltaOrPercent === "number") {
+                setEditorWidthPercent(deltaOrPercent);
+              }
+            }}
+            containerRef={containerRef}
+          >
+            <WaxSealButton
+              onCompile={() => compile(editorContent, files)}
+              status={compileStatus}
+            />
+          </StitchedSeamDivider>
+
+          {/* PDF Preview Pane (Parchment Surface) */}
+          <div className="flex flex-col flex-1 h-full overflow-hidden" style={{ background: "var(--parchment)" }}>
             <PdfPreview pdfBytes={pdfBytes} compileStatus={compileStatus} />
+
+            {/* Error Log Panel in Marginalia Red */}
+            {compileStatus === "error" && compileLog && (
+              <div
+                style={{
+                  height: "180px",
+                  background: "var(--red-tint)",
+                  borderTop: "2px solid var(--marginalia-red)",
+                  padding: "12px 16px",
+                  overflowY: "auto",
+                  color: "var(--marginalia-red)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "12px",
+                }}
+                className="dark-scrollbar"
+              >
+                <div style={{ fontWeight: 600, marginBottom: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>Compilation Error Log</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setCompileLog("")} style={{ color: "var(--marginalia-red)" }}>
+                    ✕ Close
+                  </button>
+                </div>
+                <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{compileLog}</pre>
+              </div>
+            )}
           </div>
 
-          {/* History panel */}
+          {/* History Panel Drawer */}
           {showHistory && (
-            <HistoryPanel
+            <HistoryDrawer
               projectId={id}
               files={files}
-              isEditor={isEditor}
+              onClose={() => setShowHistory(false)}
               onRestore={(updatedFiles) => {
                 setFiles(updatedFiles);
                 const main = updatedFiles.find((f) => f.isMainTex) || updatedFiles[0];
@@ -630,37 +652,30 @@ export default function EditorPage() {
             />
           )}
         </div>
-
-        {/* Error panel */}
-        {compileStatus === "error" && compileLog && (
-          <div className="error-panel">
-            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{compileLog}</pre>
-          </div>
-        )}
       </div>
 
-      {/* New file modal */}
+      {/* New File Modal */}
       {showNewFile && (
         <div className="modal-overlay" onClick={() => setShowNewFile(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">New File</div>
+          <div className="modal-ink" onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", fontFamily: "var(--font-serif)" }}>
+              Create New File
+            </div>
             <form onSubmit={createFile}>
               <div style={{ marginBottom: "16px" }}>
-                <label className="label">Filename</label>
+                <label style={{ fontSize: "12px", color: "var(--parchment-60)", display: "block", marginBottom: "6px" }}>
+                  Filename (e.g. section1.tex, references.bib)
+                </label>
                 <input
-                  className="input input-mono"
-                  placeholder="chapter1.tex"
+                  className="input-ink input-mono"
+                  placeholder="chapter.tex"
                   value={newFileName}
                   onChange={(e) => setNewFileName(e.target.value)}
                   autoFocus
                 />
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="btn btn-secondary flex-1"
-                  onClick={() => setShowNewFile(false)}
-                >
+              <div className="flex gap-2 justify-between">
+                <button type="button" className="btn btn-secondary-ink flex-1" onClick={() => setShowNewFile(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary flex-1" disabled={!newFileName.trim()}>
@@ -672,35 +687,107 @@ export default function EditorPage() {
         </div>
       )}
 
-      {/* Commit modal */}
+      {/* Commit Modal */}
       {showCommit && (
         <div className="modal-overlay" onClick={() => setShowCommit(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Create Commit</div>
+          <div className="modal-ink" onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", fontFamily: "var(--font-serif)" }}>
+              Create Version Commit
+            </div>
             <form onSubmit={createCommit}>
               <div style={{ marginBottom: "16px" }}>
-                <label className="label">Commit message (optional)</label>
+                <label style={{ fontSize: "12px", color: "var(--parchment-60)", display: "block", marginBottom: "6px" }}>
+                  Commit Message
+                </label>
                 <input
-                  className="input"
-                  placeholder="Snapshot — describe what changed"
+                  className="input-ink"
+                  placeholder="Describe what changed in this version"
                   value={commitMsg}
                   onChange={(e) => setCommitMsg(e.target.value)}
                   autoFocus
                 />
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="btn btn-secondary flex-1"
-                  onClick={() => setShowCommit(false)}
-                >
+              <div className="flex gap-2 justify-between">
+                <button type="button" className="btn btn-secondary-ink flex-1" onClick={() => setShowCommit(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary flex-1" disabled={committing}>
-                  {committing ? "Saving…" : "Commit"}
+                  {committing ? "Saving…" : "Save Commit"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Share Modal */}
+      {showShare && (
+        <div className="modal-overlay" onClick={() => setShowShare(false)}>
+          <div className="modal-parchment" onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "8px", fontFamily: "var(--font-serif)" }}>
+              Share Project
+            </div>
+            <p style={{ fontSize: "13px", color: "var(--ink-60)", marginBottom: "20px" }}>
+              Generate an access code to grant access to collaborators.
+            </p>
+
+            {generatedCode ? (
+              <div>
+                <div style={{ fontSize: "12px", color: "var(--ink-60)", marginBottom: "6px" }}>
+                  Active Access Code ({shareRole}):
+                </div>
+                <div className="code-reveal" style={{ marginBottom: "20px" }}>
+                  {generatedCode}
+                </div>
+                <button
+                  className="btn btn-primary w-full"
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedCode);
+                    toast.success("Access code copied to clipboard!");
+                  }}
+                >
+                  Copy Code
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: "16px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 600, display: "block", marginBottom: "8px" }}>
+                    Select Access Role:
+                  </label>
+                  <div style={{ display: "flex", gap: "12px" }}>
+                    <button
+                      type="button"
+                      className={`btn flex-1 ${shareRole === "editor" ? "btn-primary" : "btn-secondary"}`}
+                      onClick={() => setShareRole("editor")}
+                    >
+                      <IconEdit size={14} /> Editor
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn flex-1 ${shareRole === "viewer" ? "btn-primary" : "btn-secondary"}`}
+                      onClick={() => setShareRole("viewer")}
+                    >
+                      <IconLock size={14} /> Viewer
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button type="button" className="btn btn-secondary flex-1" onClick={() => setShowShare(false)}>
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary flex-1"
+                    onClick={handleGenerateCode}
+                    disabled={generatingCode}
+                  >
+                    {generatingCode ? "Generating…" : "Generate Access Code"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -708,27 +795,20 @@ export default function EditorPage() {
   );
 }
 
-// ─── History Panel Component ──────────────────────────────────────────────────
-function HistoryPanel({
+// ─── History Drawer Component ──────────────────────────────────────────────────
+function HistoryDrawer({
   projectId,
   files,
-  isEditor,
+  onClose,
   onRestore,
 }: {
   projectId: string;
   files: FileDoc[];
-  isEditor: boolean;
+  onClose: () => void;
   onRestore: (files: FileDoc[]) => void;
 }) {
-  const [commits, setCommits] = useState<Commit[]>([]);
+  const [commits, setCommits] = useState<{ _id: string; message: string; createdAt: string; authorId: { username: string } }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Commit[]>([]);
-  const [diffView, setDiffView] = useState<DiffResult[] | null>(null);
-  const [restoring, setRestoring] = useState(false);
-
-  interface CommitFile { filename: string; content: string; fileId: string; }
-  interface Commit { _id: string; message: string; createdAt: string; authorId: { username: string } }
-  interface DiffResult { filename: string; lines: { type: "add" | "remove" | "ctx"; text: string }[] }[]
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/commits`)
@@ -737,188 +817,85 @@ function HistoryPanel({
       .finally(() => setLoading(false));
   }, [projectId]);
 
-  function toggleSelect(commit: Commit) {
-    if (selected.find((c) => c._id === commit._id)) {
-      setSelected((prev) => prev.filter((c) => c._id !== commit._id));
-      setDiffView(null);
-    } else if (selected.length < 2) {
-      setSelected((prev) => [...prev, commit]);
-    }
-  }
-
-  async function computeDiff() {
-    if (selected.length !== 2) return;
-    const [a, b] = await Promise.all(
-      selected.map((c) => fetch(`/api/commits/${c._id}`).then((r) => r.json()))
-    );
-    const commitA = a.commit;
-    const commitB = b.commit;
-
-    const allFilenames = new Set([
-      ...commitA.files.map((f: CommitFile) => f.filename),
-      ...commitB.files.map((f: CommitFile) => f.filename),
-    ]);
-
-    const diffs: DiffResult[] = [];
-    for (const filename of allFilenames) {
-      const fileA = commitA.files.find((f: CommitFile) => f.filename === filename)?.content || "";
-      const fileB = commitB.files.find((f: CommitFile) => f.filename === filename)?.content || "";
-      if (fileA === fileB) continue;
-
-      const linesA = fileA.split("\n");
-      const linesB = fileB.split("\n");
-      const lines: { type: "add" | "remove" | "ctx"; text: string }[] = [];
-
-      // Simple line diff
-      const maxLen = Math.max(linesA.length, linesB.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (i >= linesA.length) {
-          lines.push({ type: "add", text: "+ " + linesB[i] });
-        } else if (i >= linesB.length) {
-          lines.push({ type: "remove", text: "- " + linesA[i] });
-        } else if (linesA[i] !== linesB[i]) {
-          lines.push({ type: "remove", text: "- " + linesA[i] });
-          lines.push({ type: "add", text: "+ " + linesB[i] });
-        } else {
-          lines.push({ type: "ctx", text: "  " + linesA[i] });
-        }
-      }
-
-      diffs.push({ filename, lines });
-    }
-
-    setDiffView(diffs);
-  }
-
   async function restoreCommit(commitId: string) {
-    if (!confirm("Restore to this commit? Current files will be overwritten (a new commit will be created).")) return;
-    setRestoring(true);
-    try {
-      const res = await fetch(`/api/commits/${commitId}/restore`, { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        // Re-fetch files
-        const filesRes = await fetch(`/api/projects/${projectId}/files`);
-        const filesData = await filesRes.json();
-        onRestore(filesData.files || []);
-      } else {
-        toast.error(data.error);
-      }
-    } finally {
-      setRestoring(false);
+    if (!confirm("Restore project to this commit? Current unsaved work will be overwritten.")) return;
+    const res = await fetch(`/api/commits/${commitId}/restore`, { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      const updated = await fetch(`/api/projects/${projectId}`).then((r) => r.json());
+      if (updated.files) onRestore(updated.files);
+    } else {
+      toast.error(data.error);
     }
   }
 
   return (
-    <div className="history-panel">
+    <div
+      style={{
+        position: "absolute",
+        right: 0,
+        top: 0,
+        bottom: 0,
+        width: "300px",
+        background: "#15181E",
+        borderLeft: "1px solid rgba(246, 242, 232, 0.12)",
+        zIndex: 20,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <div
         style={{
           padding: "12px 16px",
-          borderBottom: "1px solid var(--border)",
+          borderBottom: "1px solid rgba(246, 242, 232, 0.08)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          color: "var(--parchment)",
         }}
       >
-        <span style={{ fontWeight: 600, fontSize: "13px" }}>History</span>
-        {selected.length === 2 && (
-          <button className="btn btn-secondary btn-sm" onClick={computeDiff}>
-            Diff
-          </button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 600, fontSize: "13px" }}>
+          <IconHistory size={16} /> Version History
+        </div>
+        <button className="btn btn-ghost-ink btn-icon" onClick={onClose}>✕</button>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center" style={{ padding: "32px" }}>
-          <div className="spinner" />
-        </div>
-      ) : commits.length === 0 ? (
-        <div className="empty-state" style={{ padding: "32px" }}>
-          <div className="empty-state-icon">📸</div>
-          <div className="empty-state-text">No commits yet</div>
-        </div>
-      ) : (
-        <div style={{ overflowY: "auto", flex: 1 }}>
-          {diffView && (
-            <div
-              style={{
-                padding: "12px",
-                borderBottom: "1px solid var(--border)",
-                maxHeight: "300px",
-                overflowY: "auto",
-              }}
-            >
-              {diffView.map((file: { filename: string; lines: { type: string; text: string }[] }) => (
-                <div key={file.filename} style={{ marginBottom: "12px" }}>
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "var(--text-secondary)",
-                      marginBottom: "4px",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    {file.filename}
-                  </div>
-                  {file.lines.map((line: { type: string; text: string }, i: number) => (
-                    <div
-                      key={i}
-                      className={`diff-line ${
-                        line.type === "add"
-                          ? "diff-add"
-                          : line.type === "remove"
-                          ? "diff-remove"
-                          : "diff-ctx"
-                      }`}
-                    >
-                      {line.text}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {commits.map((commit: { _id: string; message: string; createdAt: string; authorId?: { username: string } }) => (
+      <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }} className="dark-scrollbar">
+        {loading ? (
+          <div className="flex justify-center" style={{ padding: "32px" }}><div className="spinner spinner-ink" /></div>
+        ) : commits.length === 0 ? (
+          <div style={{ padding: "24px", color: "var(--parchment-35)", fontSize: "12px", textAlign: "center" }}>
+            No commits recorded yet.
+          </div>
+        ) : (
+          commits.map((commit) => (
             <div
               key={commit._id}
-              className={`commit-item${selected.find((c) => c._id === commit._id) ? " selected" : ""}`}
-              onClick={() => toggleSelect(commit as Commit)}
+              style={{
+                padding: "12px 16px",
+                borderBottom: "1px solid rgba(246, 242, 232, 0.06)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+              }}
             >
-              <div
-                style={{
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  marginBottom: "2px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
+              <div style={{ fontSize: "13px", fontWeight: 500, color: "var(--parchment)" }}>
+                {commit.message || "Snapshot"}
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--parchment-35)" }}>
+                {new Date(commit.createdAt).toLocaleString()} · {commit.authorId?.username}
+              </div>
+              <button
+                className="btn btn-ghost-ink btn-sm"
+                onClick={() => restoreCommit(commit._id)}
+                style={{ alignSelf: "flex-start", marginTop: "4px", fontSize: "11px" }}
               >
-                {commit.message}
-              </div>
-              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                {new Date(commit.createdAt).toLocaleString()} ·{" "}
-                {(commit.authorId as { username: string })?.username || "unknown"}
-              </div>
-              {isEditor && (
-                <button
-                  className="btn btn-secondary btn-sm"
-                  style={{ marginTop: "6px" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    restoreCommit(commit._id);
-                  }}
-                  disabled={restoring}
-                >
-                  Restore
-                </button>
-              )}
+                Restore
+              </button>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }

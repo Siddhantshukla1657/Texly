@@ -21,10 +21,15 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     // First-time sign-in: create a user document
     user = await User.create({
       clerkId,
-      username: clerkId, // Will be overwritten by webhook with real name
+      username: clerkId, // Will be overwritten by page.tsx with real name
       email: "",
       isAdmin: false,
     });
+  }
+
+  const DEFAULT_ADMIN_EMAIL = "siddhantshukla2022@gmail.com";
+  if (user.email && user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() && !user.isAdmin) {
+    user.isAdmin = true;
   }
 
   // Update last login

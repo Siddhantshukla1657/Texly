@@ -21,6 +21,9 @@ export default async function RootPage() {
 
   await connectDB();
 
+  const DEFAULT_ADMIN_EMAIL = "siddhantshukla2022@gmail.com";
+  const isDefaultAdmin = email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+
   // Find by clerkId first, then fall back to matching email (for pre-seeded admin)
   let user = await User.findOne({ clerkId });
 
@@ -31,6 +34,9 @@ export default async function RootPage() {
       // Bind the Clerk ID to the pre-seeded record
       user.clerkId = clerkId;
       user.username = username;
+      if (isDefaultAdmin) {
+        user.isAdmin = true;
+      }
       await user.save();
     }
   }
@@ -41,14 +47,16 @@ export default async function RootPage() {
       clerkId,
       username,
       email,
-      isAdmin: false,
+      isAdmin: isDefaultAdmin,
     });
+  } else if (isDefaultAdmin && !user.isAdmin) {
+    // Auto-promote default admin if logged in user has default admin email
+    user.isAdmin = true;
+    await user.save();
   }
 
-  // Redirect based on role
-  if (user.isAdmin) {
-    redirect("/admin");
-  }
+  // Redirect all authenticated users to /dashboard
+  // Admins see the Admin Panel link in the sidebar from there
 
   const activeAccess = await ProjectAccess.findOne({
     userId: user._id,
