@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/TeX_Live-2026-008080?style=flat-square&logo=latex" alt="TeX Live 2026"/>
   <img src="https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb" alt="MongoDB"/>
   <img src="https://img.shields.io/badge/Clerk-Auth-6C47FF?style=flat-square&logo=clerk" alt="Clerk"/>
-  <img src="https://img.shields.io/badge/License-MIT-14B8A6?style=flat-square" alt="MIT License"/>
+  <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="GPL-3.0 License"/>
 </p>
 
 ---
@@ -333,4 +333,4 @@ Texly/
 
 ## <img src="public/icons/file.svg" width="20" height="20" valign="middle"/> &nbsp;License
 
-This project is open-source under the [MIT License](LICENSE).
+This project is open-source software licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
